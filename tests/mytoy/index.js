@@ -1,4 +1,4 @@
-// Instrument with: rm -rf instrumented && node $JALANGIHOME/src/js/commands/instrument.js --inlineIID --inlineSource -i --inlineJalangi --analysis $JALANGIHOME/src/js/sample_analyses/ChainedAnalyses.js --analysis $JALANGIHOME/src/js/runtime/SMemory.js --analysis analysis.js --outputDir ./instrumented ./tests/mytoy
+// Instrument with: rm -rf instrumented/mytoy && node $JALANGIHOME/src/js/commands/instrument.js --inlineIID --inlineSource -i --inlineJalangi --analysis $JALANGIHOME/src/js/sample_analyses/ChainedAnalyses.js --analysis $JALANGIHOME/src/js/runtime/SMemory.js --analysis analysis.js --outputDir ./instrumented ./tests/mytoy
 
 "use strict";
 
@@ -6,7 +6,7 @@ function taint(x) {
   return x;
 }
 
-function logTaint(x) {}
+function checkTaint(x) { }
 
 function f(x, y) {
   return x;
@@ -27,15 +27,15 @@ var b = 7;
 var c = f(a, b);
 var d = g(a, b);
 
-logTaint("a", a);
-logTaint("b", b);
-logTaint("c", c);
-logTaint("d", d);
+console.log("a", checkTaint(a));
+console.log("b", checkTaint(b));
+console.log("c", checkTaint(c));
+console.log("d", checkTaint(d));
 
 var h1 = h(f, a);
 var e = h1(b, b);
 
-logTaint("h1", h1);
-logTaint("e", e);
+console.log("h1", checkTaint(h1));
+console.log("e", checkTaint(e));
 
-console.log(e);
+console.log("hello".toUpperCase());

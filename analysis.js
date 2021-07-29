@@ -17,7 +17,7 @@
         );
     };
 
-    TaintSource.prototype.toString = function (s) {
+    TaintSource.prototype.toString = function () {
         return `(${JSON.stringify(this.label)}, ${sandbox.iidToLocation(this.sid, this.iid)})`;
     };
 
@@ -64,16 +64,22 @@
     }
 
     TaintUtils.getTaintOfObject = function (o) {
-        var sobj = sandbox.smemory.getShadowObjectOfObject(o);
-        return sobj && sobj.taint;
+        if (isPrimitive(o)) {
+            throw new Error("Expected Box or object, but primitive found.");
+        }
+        if (o instanceof Box) {
+            return o.taint;
+        }
+        return Taint.bottom();
     };
 
     TaintUtils.setTaintOfObject = function (o, t) {
-        var sobj = sandbox.smemory.getShadowObjectOfObject(o);
-        if (sobj) {
-            sobj.taint = t;
+        if (isPrimitive(o)) {
+            throw new Error("Expected Box or object, but primitive found.");
         }
-        return !!sobj;
+        if (o instanceof Box) {
+            o.taint = t;
+        }
     };
 
     /**
@@ -88,17 +94,20 @@
     };
 
     Box.prototype.toString = function () {
-        return `Box(${JSON.stringify(this.val)})`;
+        return String(this.val);
     };
 
     // Boxing/Unboxing tools
     function box(x) {
-        var result = (isPrimitive(x) ? new Box(x) : x);
-        TaintUtils.setTaintOfObject(result,
-            Taint.join(...Array.from(arguments)
-                .slice(1)
-                .map(a => TaintUtils.getTaintOfObject(a))));
-        return result;
+        if (isPrimitive(x)) {
+            var result = new Box(x);
+            TaintUtils.setTaintOfObject(result,
+                Taint.join(...Array.from(arguments)
+                    .slice(1)
+                    .map(a => TaintUtils.getTaintOfObject(a))));
+            return result;
+        }
+        return x;
     }
 
     function unbox(x) {
@@ -127,10 +136,22 @@
      */
     function TaintAnalysis() {
 
+        // Do not let Jalangi perform this operation (base and offset could be boxed)
+        this.getFieldPre = function (iid, base, offset, isComputed, isOpAssign, isMethodCall) {
+            return { base: base, offset: offset, skip: true };
+        };
+
+        // Unbox base and offset and box the result (if the result is already boxed, then the taint is the one stored inside the box, otherwise it is untainted, for e.g., `window.Infinity`)
+        this.getField = function (iid, base, offset, val, isComputed, isOpAssign, isMethodCall) {
+            return { result: box(unbox(base)[unbox(offset)]) };
+        };
+
+        // Do not let Jalangi perform this operation if f is a native function, i.e. the code is hidden (args could be boxed)
         this.invokeFunPre = function (iid, f, base, args, isConstructor, isMethod, functionIid, functionSid) {
             return { f: f, base: base, args: args, skip: isNativeFunction(f) };
         };
 
+        // If f is a native function, then unbox the args, apply the function and box the result, otherwise return the result as is (it is already boxed)
         this.invokeFun = function (iid, f, base, args, result, isConstructor, isMethod, functionIid, functionSid) {
             if (isNativeFunction(f)) {
                 return { result: box(f.apply(base, Array.from(args).map(a => unbox(a))), ...args) };
@@ -139,12 +160,13 @@
                 TaintUtils.setTaintOfObject(result,
                     TaintUtils.getTaintOfObject(result)
                         .withSource(new TaintSource("taint", sandbox.sid, iid)));
-            } else if (logTaint && f === logTaint) {
-                console.log(args[0].valueOf(), TaintUtils.getTaintOfObject(args[1]).toString());
+            } else if (checkTaint && f === checkTaint) {
+                return { result: box(TaintUtils.getTaintOfObject(args[0]).toString()) };
             }
             return { result: result };
         };
 
+        // Do not let Jalangi perform this operation (left and right could be boxed)
         this.binaryPre = function (iid, op, left, right, isOpAssign, isSwitchCaseComparison, isComputed) {
             return { op: op, left: left, right: right, skip: true };
         };
@@ -198,10 +220,12 @@
             }
         }
 
+        // Unbox left and right and box the result
         this.binary = function (iid, op, left, right, result, isOpAssign, isSwitchCaseComparison, isComputed) {
             return { result: box(applyBinary(op, unbox(left), unbox(right)), left, right) };
         };
 
+        // Do not let Jalangi perform this operation (left could be boxed)
         this.unaryPre = function (iid, op, left) {
             return { op: op, left: left, skip: true };
         };
@@ -223,10 +247,12 @@
             }
         }
 
+        // Unbox left and box the result
         this.unary = function (iid, op, left, result) {
             return { result: box(applyUnary(op, unbox(left)), left) };
         };
 
+        // Box every literal value (it is untainted)
         this.literal = function (iid, val, hasGetterSetter) {
             return { result: box(val) };
         };
