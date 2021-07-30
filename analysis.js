@@ -171,6 +171,17 @@
             return { result: box(unbox(base)[unbox(offset)]) };
         };
 
+        // Do not let Jalangi perform this operation (base and offset could be boxed)
+        this.putFieldPre = function (iid, base, offset, val, isComputed, isOpAssign) {
+            return { base: base, offset: offset, val: val, skip: true };
+        };
+
+        // Unbox base and offset, write val and return val as is (it is already boxed)
+        this.putField = function (iid, base, offset, val, isComputed, isOpAssign) {
+            unbox(base)[unbox(offset)] = val;
+            return { result: val };
+        };
+
         // Do not let Jalangi perform this operation if f is a native function, i.e. the code is hidden (args could be boxed)
         this.invokeFunPre = function (iid, f, base, args, isConstructor, isMethod, functionIid, functionSid) {
             return { f: f, base: base, args: args, skip: isNativeFunction(f) };

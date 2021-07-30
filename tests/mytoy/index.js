@@ -40,6 +40,10 @@ console.log("e", checkTaint(e));
 
 console.log("hello".toUpperCase());
 
+var o = { a: 6 };
+o.b = taint(8);
+console.log(o.a + o.b);
+
 if (false) {
   console.log(1);
 } else {
