@@ -93,8 +93,11 @@
         return this.val;
     };
 
-    Box.prototype.toString = function () {
-        return String(this.val);
+    Box.prototype.toString = function (mustBeTrue) {
+        if (!mustBeTrue) {
+            throw new Error("Box has been exposed!");
+        }
+        return `Box(${this.val})`;
     };
 
     // Boxing/Unboxing tools
@@ -151,17 +154,18 @@
             return { f: f, base: base, args: args, skip: isNativeFunction(f) };
         };
 
-        // If f is a native function, then unbox the args, apply the function and box the result, otherwise return the result as is (it is already boxed)
+        // If f is a native function, then unbox the base and args, apply the function and box the result, otherwise return the result as is (it is already boxed)
+        // In particular, we need to unbox the base in case of native function calls because it could be the method of a primitive value (such value is boxed)
         this.invokeFun = function (iid, f, base, args, result, isConstructor, isMethod, functionIid, functionSid) {
             if (isNativeFunction(f)) {
-                return { result: box(f.apply(base, Array.from(args).map(a => unbox(a))), ...args) };
+                return { result: box(f.apply(unbox(base), Array.from(args).map(a => unbox(a))), base, ...args) };
             }
             if (taint && f === taint) {
                 TaintUtils.setTaintOfObject(result,
                     TaintUtils.getTaintOfObject(result)
                         .withSource(new TaintSource("taint", sandbox.sid, iid)));
             } else if (checkTaint && f === checkTaint) {
-                return { result: box(TaintUtils.getTaintOfObject(args[0]).toString()) };
+                return { result: box(TaintUtils.getTaintOfObject(args[0]).toString(true)) };
             }
             return { result: result };
         };
