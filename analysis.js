@@ -2,6 +2,9 @@
 
     /**
      * TaintSource class
+     * label: a string identifying the type of source
+     * sid: script ID where the taint comes from
+     * iid: instruction ID where the taint comes from
      */
     function TaintSource(label, sid, iid) {
         this.label = label;
@@ -9,6 +12,7 @@
         this.iid = iid;
     }
 
+    // it returns true whether s1 and s2 represents the same source, false otherwise
     TaintSource.equals = function (s1, s2) {
         return (
             s1.label === s2.label &&
@@ -17,6 +21,7 @@
         );
     };
 
+    // it returns a string that represents this source
     TaintSource.prototype.toString = function () {
         return `(${JSON.stringify(this.label)}, ${sandbox.iidToLocation(this.sid, this.iid)})`;
     };
@@ -30,10 +35,12 @@
 
     Taint.__bottomVal = new Taint();
 
+    // bottom value of the taint lattice (empty set of sources)
     Taint.bottom = function () {
         return Taint.__bottomVal;
     };
 
+    // it returns a new taint status which joins (set union) all the taint statuses passed in arguments
     Taint.__statusJoin = function () {
         return Array.from(arguments).reduce((a, x) => [
             ...a,
@@ -41,18 +48,21 @@
         ], []);
     };
 
+    // it returns a new taint which joins (set union) all the taints passed in arguments
     Taint.join = function () {
         var result = new Taint();
         result.status = Taint.__statusJoin(...Array.from(arguments).map(t => t.status))
         return result;
     };
 
+    // it returns a new taint whose sources are the ones of this and s
     Taint.prototype.withSource = function (s) {
         var result = new Taint();
         result.status = Taint.__statusJoin(this.status, [s]);
         return result;
     };
 
+    // it returns a string that represents this
     Taint.prototype.toString = function () {
         return "[" + this.status.map(s => s.toString()).join(", ") + "]";
     }
@@ -63,6 +73,7 @@
     function TaintUtils() {
     }
 
+    // it returns the Taint object associated to o (o must be Box or object, but taintedness is tracked only for boxed primitive values)
     TaintUtils.getTaintOfObject = function (o) {
         if (isPrimitive(o)) {
             throw new Error("Expected Box or object, but primitive found.");
@@ -73,6 +84,7 @@
         return Taint.bottom();
     };
 
+    // it sets the Taint object associated to o (o must be Box or object, but taintedness is tracked only for boxed primitive values)
     TaintUtils.setTaintOfObject = function (o, t) {
         if (isPrimitive(o)) {
             throw new Error("Expected Box or object, but primitive found.");
@@ -89,10 +101,12 @@
         this.val = x;
     }
 
+    // it returns the boxed value
     Box.prototype.valueOf = function () {
         return this.val;
     };
 
+    // it returns a string that represents this (mustBeTrue has to be set, so that it is possible to identify if the box has been exposed to the user, which could break the script execution)
     Box.prototype.toString = function (mustBeTrue) {
         if (!mustBeTrue) {
             throw new Error("Box has been exposed!");
@@ -100,7 +114,10 @@
         return `Box(${this.val})`;
     };
 
-    // Boxing/Unboxing tools
+    /**
+     * Boxing/Unboxing tools
+     */
+    // it returns a box which contains x and propagates the taint from the rest of arguments (only primitive values are boxed)
     function box(x) {
         if (isPrimitive(x)) {
             var result = new Box(x);
@@ -113,11 +130,15 @@
         return x;
     }
 
+    // it returns the value that is boxed in x
     function unbox(x) {
         return (x instanceof Box ? x.valueOf() : x);
     }
 
-    // Auxiliary tools
+    /**
+     * Auxiliary tools
+     */
+    // it returns true whether x is a JS primitive value, false otherwise
     function isPrimitive(x) {
         return (
             x === null ||
@@ -125,6 +146,7 @@
         );
     }
 
+    // it returns true whether x is a native function, false otherwise
     function isNativeFunction(x) {
         return (
             typeof x === "function" && (
