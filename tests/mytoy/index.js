@@ -42,6 +42,8 @@ console.log("hello".toUpperCase());
 
 var o = { a: 6 };
 o.b = taint(8);
+var c = o.b;
+console.log("aaaa", checkTaint(c));
 console.log(o.a + o.b);
 
 if (false) {
