@@ -39,3 +39,9 @@ console.log("h1", checkTaint(h1));
 console.log("e", checkTaint(e));
 
 console.log("hello".toUpperCase());
+
+if (false) {
+  console.log(1);
+} else {
+  console.log(2);
+}

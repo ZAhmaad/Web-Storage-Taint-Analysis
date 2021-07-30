@@ -192,6 +192,11 @@
             return { result: result };
         };
 
+        // Unbox the conditional value (otherwise a Box object is always truly)
+        this.conditional = function (iid, result) {
+            return {result: unbox(result)};
+        };
+
         // Do not let Jalangi perform this operation (left and right could be boxed)
         this.binaryPre = function (iid, op, left, right, isOpAssign, isSwitchCaseComparison, isComputed) {
             return { op: op, left: left, right: right, skip: true };
