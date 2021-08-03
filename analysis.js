@@ -5,11 +5,13 @@
      * label: a string identifying the type of source
      * sid: script ID where the taint comes from
      * iid: instruction ID where the taint comes from
+     * extra: extra info about this source
      */
     function TaintSource(label, sid, iid) {
         this.label = label;
         this.sid = sid;
         this.iid = iid;
+        this.extra = Array.from(arguments).slice(3);
     }
 
     // it returns true whether s1 and s2 represents the same source, false otherwise
@@ -17,13 +19,15 @@
         return (
             s1.label === s2.label &&
             s1.sid === s2.sid &&
-            s1.iid === s2.iid
+            s1.iid === s2.iid &&
+            s1.extra.length === s2.extra.length &&
+            s1.extra.every((value, index) => s2.extra[index] === value)
         );
     };
 
     // it returns a string that represents this source
     TaintSource.prototype.toString = function () {
-        return `(${JSON.stringify(this.label)}, ${sandbox.iidToLocation(this.sid, this.iid)})`;
+        return `(${JSON.stringify(this.label)}, ${sandbox.iidToLocation(this.sid, this.iid)}${this.extra.length > 0 ? (", " + this.extra.map(x => JSON.stringify(x)).join(", ")) : ""})`;
     };
 
     /**
@@ -50,6 +54,9 @@
 
     // it returns a new taint which joins (set union) all the taints passed in arguments
     Taint.join = function () {
+        if (arguments.length === 0) {
+            return Taint.bottom();
+        }
         var result = new Taint();
         result.status = Taint.__statusJoin(...Array.from(arguments).map(t => t.status))
         return result;
@@ -75,9 +82,6 @@
 
     // it returns the Taint object associated to o (o must be Box or object, but taintedness is tracked only for boxed primitive values)
     TaintUtils.getTaintOfObject = function (o) {
-        if (isPrimitive(o)) {
-            throw new Error("Expected Box or object, but primitive found.");
-        }
         if (o instanceof Box) {
             return o.taint;
         }
@@ -86,13 +90,28 @@
 
     // it sets the Taint object associated to o (o must be Box or object, but taintedness is tracked only for boxed primitive values)
     TaintUtils.setTaintOfObject = function (o, t) {
-        if (isPrimitive(o)) {
-            throw new Error("Expected Box or object, but primitive found.");
-        }
         if (o instanceof Box) {
             o.taint = t;
         }
     };
+
+    // a collector for the tainted flows
+    var taintedFlows = [];
+
+    // if o is tainted, then it stores the tracked tainted flow, i.e. the pair source-sink (s is a TaintSource object that represents the sink)
+    TaintUtils.sink = function (o, s) {
+        var t = TaintUtils.getTaintOfObject(o);
+        if (t && t !== Taint.bottom()) {
+            taintedFlows.push([t, s]);
+        }
+    };
+
+    // it reports all the tainted flows that have been tracked
+    TaintUtils.report = function () {
+        for (var f of taintedFlows) {
+            console.log(f);
+        }
+    }
 
     /**
      * Box class
@@ -102,7 +121,10 @@
     }
 
     // it returns the boxed value
-    Box.prototype.valueOf = function () {
+    Box.prototype.valueOf = function (mustBeTrue) {
+        if (!mustBeTrue) {
+            throw new Error("Box has been exposed!");
+        }
         return this.val;
     };
 
@@ -132,7 +154,7 @@
 
     // it returns the value that is boxed in x
     function unbox(x) {
-        return (x instanceof Box ? x.valueOf() : x);
+        return (x instanceof Box ? x.valueOf(true) : x);
     }
 
     /**
@@ -168,7 +190,14 @@
 
         // Unbox base and offset and box the result (if the result is already boxed, then the taint is the one stored inside the box, otherwise it is untainted, for e.g., `window.Infinity`)
         this.getField = function (iid, base, offset, val, isComputed, isOpAssign, isMethodCall) {
-            return { result: box(unbox(base)[unbox(offset)], base, offset) };
+            result = box(unbox(base)[unbox(offset)], base, offset);
+            if (base === window.document && offset === "cookie") {
+                // taint document.cookie
+                TaintUtils.setTaintOfObject(result,
+                    TaintUtils.getTaintOfObject(result)
+                        .withSource(new TaintSource("document.cookie", sandbox.sid, iid)));
+            }
+            return { result: result };
         };
 
         // Do not let Jalangi perform this operation (base and offset could be boxed)
@@ -191,14 +220,31 @@
         // In particular, we need to unbox the base in case of native function calls because it could be the method of a primitive value (such value is boxed)
         this.invokeFun = function (iid, f, base, args, result, isConstructor, isMethod, functionIid, functionSid) {
             if (isNativeFunction(f)) {
-                return { result: box(f.apply(unbox(base), Array.from(args).map(a => unbox(a))), base, ...args) };
+                if (isConstructor) {
+                    result = box(new f(...Array.from(args).map(a => unbox(a))), ...args);
+                } else {
+                    result = box(f.apply(unbox(base), Array.from(args).map(a => unbox(a))), base, ...args);
+                }
             }
-            if (taint && f === taint) {
+            if (f === Storage.prototype.getItem) {
+                // taint the value of the key
+                var instance = (
+                    base === window.localStorage ? "localStorage" : (
+                        base === window.localStorage ? "sessionStorage" : "unknown"));
+                var key = unbox(args[0]);
                 TaintUtils.setTaintOfObject(result,
                     TaintUtils.getTaintOfObject(result)
-                        .withSource(new TaintSource("taint", sandbox.sid, iid)));
-            } else if (checkTaint && f === checkTaint) {
-                return { result: box(TaintUtils.getTaintOfObject(args[0]).toString(true)) };
+                        .withSource(new TaintSource("Storage.getItem", sandbox.sid, iid, instance, key)));
+            } else if (f === Storage.prototype.setItem) {
+                // sink the 2nd argument of a Storage.setItem call, i.e. the value you want to give the key you are creating/updating
+                var instance = (
+                    base === window.localStorage ? "localStorage" : (
+                        base === window.localStorage ? "sessionStorage" : "unknown"));
+                var key = unbox(args[0]);
+                TaintUtils.sink(args[1], new TaintSource("Storage.setItem", sandbox.sid, iid, instance, key));
+            } else if (f === XMLHttpRequest.prototype.open) {
+                // sink the 2nd argument of a XMLHTTPRequest.open call, i.e. the URL to send the request to
+                TaintUtils.sink(args[1], new TaintSource("XMLHTTPRequest.open", sandbox.sid, iid));
             }
             return { result: result };
         };
@@ -297,6 +343,12 @@
         // Box every literal value (it is untainted)
         this.literal = function (iid, val, hasGetterSetter) {
             return { result: box(val) };
+        };
+
+        // It reports all the tainted flows
+        this.endExecution = function () {
+            console.log("endExecution()");
+            TaintUtils.report();
         };
     };
 
