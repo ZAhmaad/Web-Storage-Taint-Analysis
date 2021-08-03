@@ -168,7 +168,7 @@
 
         // Unbox base and offset and box the result (if the result is already boxed, then the taint is the one stored inside the box, otherwise it is untainted, for e.g., `window.Infinity`)
         this.getField = function (iid, base, offset, val, isComputed, isOpAssign, isMethodCall) {
-            return { result: box(unbox(base)[unbox(offset)], offset) };
+            return { result: box(unbox(base)[unbox(offset)], base, offset) };
         };
 
         // Do not let Jalangi perform this operation (base and offset could be boxed)
