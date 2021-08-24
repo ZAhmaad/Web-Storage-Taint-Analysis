@@ -230,7 +230,7 @@
                 // taint the value of the key
                 var instance = (
                     base === window.localStorage ? "localStorage" : (
-                        base === window.localStorage ? "sessionStorage" : "unknown"));
+                        base === window.sessionStorage ? "sessionStorage" : "unknown"));
                 var key = unbox(args[0]);
                 TaintUtils.setTaintOfObject(result,
                     TaintUtils.getTaintOfObject(result)
@@ -239,7 +239,7 @@
                 // sink the 2nd argument of a Storage.setItem call, i.e. the value you want to give the key you are creating/updating
                 var instance = (
                     base === window.localStorage ? "localStorage" : (
-                        base === window.localStorage ? "sessionStorage" : "unknown"));
+                        base === window.sessionStorage ? "sessionStorage" : "unknown"));
                 var key = unbox(args[0]);
                 TaintUtils.sink(args[1], new TaintSource("Storage.setItem", sandbox.sid, iid, instance, key));
             } else if (f === XMLHttpRequest.prototype.open) {
