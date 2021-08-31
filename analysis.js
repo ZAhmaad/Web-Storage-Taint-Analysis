@@ -3,9 +3,9 @@
     /**
      * Label constructor
      *
-     * @param {string} type The string identifying this type of label
+     * @param {string} type The string identifying the type of this Label
      * @param {number} iid The instruction ID
-     * @param {any[]} extra: Extra info about this label
+     * @param {any[]} extra: Extra info about this Label
      */
     function Label(type, iid, ...extra) {
         this.type = type;
@@ -232,6 +232,15 @@
         );
     }
 
+    function Object_getPropertyDescriptor(o, p) {
+        var d = undefined;
+        while (d === undefined && typeof o === "object" && o !== null) {
+            d = Object.getOwnPropertyDescriptor(o, p);
+            o = o.__proto__;
+        }
+        return d;
+    }
+
     /**
      * TaintAnalysis class
      */
@@ -243,10 +252,9 @@
         };
 
         this.getField = function (iid, base, offset, val, isComputed, isOpAssign, isMethodCall) {
-            [u_base, t_base] = unbox(base);
-            [u_offset, t_offset] = unbox(offset);
+            var [u_base, t_base] = unbox(base);
+            var [u_offset, t_offset] = unbox(offset);
 
-            // TODO: manage getter
             var u_result = u_base[u_offset];
 
             var documentCookie = (u_base === window.document && u_offset === "cookie");
@@ -262,18 +270,32 @@
         };
 
         this.putField = function (iid, base, offset, val, isComputed, isOpAssign) {
-            [u_base, t_base] = unbox(base);
-            [u_offset, t_offset] = unbox(offset);
+            var [u_base, t_base] = unbox(base);
+            var [u_offset, t_offset] = unbox(offset);
 
-            // TODO: manage setter
-            u_base[u_offset] = val;
+            /*
+             * One does not simply do:
+             *
+             *   u_base[u_offset] = val;
+             *
+             * If the property has a setter and it is a native function,
+             * the boxed value will be exposed!
+             * It is necessary to unbox val before doing the assignment.
+             */
+            var d = Object_getPropertyDescriptor(u_base, u_offset);
+            if (typeof d.set !== "undefined" && !isUserFunction(d.set)) {
+                var [u_val, t_val] = unbox(val);
+                u_base[u_offset] = u_val;
+            } else {
+                u_base[u_offset] = val;
+            }
 
             return { result: val };
         };
 
         // Do not let Jalangi perform this operation if f is a native function, i.e. the code is hidden
         this.invokeFunPre = function (iid, f, base, args, isConstructor, isMethod, functionIid, functionSid) {
-            return { f: f, base: base, args: args, skip: !isUserFunction(f) };
+            return { f: f, base: base, args: args, skip: true };
         };
 
         this.invokeFun = function (iid, f, base, args, result, isConstructor, isMethod, functionIid, functionSid) {
@@ -289,8 +311,8 @@
                     }, [[], []]);
 
                 var u_result = isConstructor
-                    ? u_result = new u_f(...u_args)
-                    : u_result = u_f.call(u_base, ...u_args);
+                    ? new u_f(...u_args)
+                    : u_f.call(u_base, ...u_args);
 
                 var t_result = isConstructor
                     ? Taint.join(t_f, ...t_args)
@@ -311,9 +333,16 @@
                 }
 
                 return { result: box(u_result, t_result) };
-            }
+            } else {
+                var [u_f, t_f] = unbox(f);
+                var [u_base, t_base] = unbox(base);
 
-            return { result: result };
+                var result = isConstructor
+                    ? new u_f(...args)
+                    : u_f.call(u_base, ...args);
+
+                return { result: result };
+            }
         };
 
         this.conditional = function (iid, result) {

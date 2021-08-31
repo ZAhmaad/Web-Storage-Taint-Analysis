@@ -11,6 +11,7 @@ function initClickCount() {
 
 function setClickCount(cc) {
     window.localStorage.setItem("clickCount", cc);
+    document.body.innerHTML += "</br>" + cc;
 }
 
 function updateClickCount() {
