@@ -65,10 +65,10 @@
      * @returns {Label[]}
      */
     Taint.__statusJoin = function (...args) {
-        return args.reduce((a, x) => [
-            ...a,
-            ...x.filter(s2 => !a.some(s1 => Label.equals(s1, s2)))
-        ], []);
+        return args.reduce((a, x) => {
+            a.push(...x.filter(s2 => !a.some(s1 => Label.equals(s1, s2))));
+            return a;
+        }, []);
     };
 
     /**
@@ -117,15 +117,17 @@
         this.val = x;
     }
 
+    var $SafeUnboxing = Symbol("$SafeUnboxing");
+
     /**
      * It returns the value inside the Box.
-     * NOTE: mustBeTrue has to be set, so that it is possible to identify whether the box has been exposed to the user, which could break the script execution.
+     * NOTE: safeUnboxing has to be set, so that it is possible to identify whether the box has been exposed to the user, which could break the script execution.
      *
-     * @param {boolean} mustBeTrue
+     * @param {boolean} safeUnboxing
      * @returns {any}
      */
-    Box.prototype.valueOf = function (mustBeTrue) {
-        if (!mustBeTrue) {
+    Box.prototype.valueOf = function (safeUnboxing) {
+        if (safeUnboxing !== $SafeUnboxing) {
             throw new Error("Box has been exposed!");
         }
         return this.val;
@@ -133,13 +135,13 @@
 
     /**
      * It returns a string that represents this Box.
-     * NOTE: mustBeTrue has to be set, so that it is possible to identify whether the box has been exposed to the user, which could break the script execution.
+     * NOTE: safeUnboxing has to be set, so that it is possible to identify whether the box has been exposed to the user, which could break the script execution.
      *
-     * @param {boolean} mustBeTrue
+     * @param {boolean} safeUnboxing
      * @returns {string}
      */
-    Box.prototype.toString = function (mustBeTrue) {
-        if (!mustBeTrue) {
+    Box.prototype.toString = function (safeUnboxing) {
+        if (safeUnboxing !== $SafeUnboxing) {
             throw new Error("Box has been exposed!");
         }
         return `Box(${this.val})`;
@@ -169,8 +171,18 @@
      */
     function unbox(y) {
         return y instanceof Box
-            ? [y.valueOf(true), y.taint]
+            ? [y.valueOf($SafeUnboxing), y.taint]
             : [y, Taint.bottom()];
+    }
+
+    function unboxAll(args) {
+        return args
+            .map(a => unbox(a))
+            .reduce((ut_args, [u_a, t_a]) => {
+                ut_args[0].push(u_a);
+                ut_args[1].push(t_a);
+                return ut_args;
+            }, [[], []]);
     }
 
     /**
@@ -216,7 +228,7 @@
         );
     }
 
-    var $UserFunction = Symbol("Symbol.UserFunction");
+    var $UserFunction = Symbol("$UserFunction");
 
     /**
      * It returns true whether x is a user function, false otherwise.
@@ -230,15 +242,6 @@
             typeof x[$UserFunction] === "boolean" &&
             x[$UserFunction]
         );
-    }
-
-    function Object_getPropertyDescriptor(o, p) {
-        var d = undefined;
-        while (d === undefined && typeof o === "object" && o !== null) {
-            d = Object.getOwnPropertyDescriptor(o, p);
-            o = o.__proto__;
-        }
-        return d;
     }
 
     /**
@@ -282,8 +285,8 @@
              * the boxed value will be exposed!
              * It is necessary to unbox val before doing the assignment.
              */
-            var d = Object_getPropertyDescriptor(u_base, u_offset);
-            if (typeof d.set !== "undefined" && !isUserFunction(d.set)) {
+            var setter = u_base.__lookupSetter__(u_offset);
+            if (setter !== undefined && !isUserFunction(setter)) {
                 var [u_val, t_val] = unbox(val);
                 u_base[u_offset] = u_val;
             } else {
@@ -302,13 +305,20 @@
             if (!isUserFunction(f)) {
                 var [u_f, t_f] = unbox(f);
                 var [u_base, t_base] = unbox(base);
-                var [u_args, t_args] = Array.from(args)
-                    .map(a => unbox(a))
-                    .reduce((ut_args, [u_a, t_a]) => {
-                        ut_args[0].push(u_a);
-                        ut_args[1].push(t_a);
-                        return ut_args;
-                    }, [[], []]);
+                var [u_args, t_args] = unboxAll(Array.from(args));
+
+                /*
+                 * Wrap each native function passed as argument to a native
+                 * function call, so that it is possible to unbox the values
+                 * passed as arguments to a possible call of such function.
+                 */
+                u_args = u_args.map(u_a =>
+                    typeof u_a === "function" && !isUserFunction(u_a)
+                    ? (function(...args1) {
+                        var [u_args1, t_args1] = unboxAll(args1);
+                        return u_a.call(null, ...u_args1);
+                    }).bind(null)
+                    : u_a);
 
                 var u_result = isConstructor
                     ? new u_f(...u_args)
