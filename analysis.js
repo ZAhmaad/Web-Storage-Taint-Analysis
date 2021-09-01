@@ -175,13 +175,19 @@
             : [y, Taint.bottom()];
     }
 
-    function unboxAll(args) {
-        return args
-            .map(a => unbox(a))
-            .reduce((ut_args, [u_a, t_a]) => {
-                ut_args[0].push(u_a);
-                ut_args[1].push(t_a);
-                return ut_args;
+    /**
+     * It returns the actual value and the corresponding Taint from each boxed value in ys.
+     *
+     * @param {any[]} ys
+     * @returns {[any[], Taint[]]}
+     */
+    function unboxAll(ys) {
+        return ys
+            .map(y => unbox(y))
+            .reduce((ut_ys, [u_y, t_y]) => {
+                ut_ys[0].push(u_y);
+                ut_ys[1].push(t_y);
+                return ut_ys;
             }, [[], []]);
     }
 
@@ -316,7 +322,9 @@
                     typeof u_a === "function" && !isUserFunction(u_a)
                     ? (function(...args1) {
                         var [u_args1, t_args1] = unboxAll(args1);
-                        return u_a.call(null, ...u_args1);
+                        var u_result1 = u_a.call(null, ...u_args1);
+                        var t_result1 = Taint.join(...t_args1);
+                        return box(u_result1, t_result1);
                     }).bind(null)
                     : u_a);
 
