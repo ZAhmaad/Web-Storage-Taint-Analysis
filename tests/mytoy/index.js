@@ -29,19 +29,31 @@ window.localStorage.setItem("d", d);
 var h1 = h(f, a);
 var e = h1(b, b);
 
-window.localStorage.setItem("h1", h1);
 window.localStorage.setItem("e", e);
 
-console.log("hello".toUpperCase());
-
 var o = { a: 6 };
-o.b = +window.localStorage.getItem("b") + 8;
-var c = o.b;
-window.localStorage.setItem("c", c);
+o.b = a;
+
+window.localStorage.setItem("e", o.a);
+window.localStorage.setItem("e", o.b);
 console.log(o.a + o.b);
 
-if (false) {
-    console.log(1);
-} else {
-    console.log(2);
-}
+var j = o.b;
+
+window.localStorage.setItem("e", j && 12);
+window.localStorage.setItem("e", j || 12);
+
+Object.defineProperty(o, "j", {
+  enumerable: true,
+  configurable: true,
+  get: function () {
+    return j;
+  },
+  set: function (val) {}
+});
+
+window.localStorage.setItem("e", o.j);
+
+var s;
+console.log(14 + (s = o.b += 2));
+window.localStorage.setItem("e", s);
