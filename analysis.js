@@ -1,483 +1,595 @@
-(function (sandbox) {
+// JALANGI DO NOT INSTRUMENT
 
-    /**
-     * Label constructor
-     *
-     * @param {string} type The string identifying the type of this Label
-     * @param {number} iid The instruction ID
-     * @param {any[]} extra: Extra info about this Label
-     */
-    function Label(type, iid, ...extra) {
-        this.type = type;
-        this.sid = sandbox.sid;
+/**
+ * @file Dynamic taint analysis with Jalangi 2
+ * @author Samuele Casarin
+ *
+ */
+
+(function (J$) {
+
+    const global = this;
+
+    function Label(name, iid, sid, extra = []) {
+        this.name = name;
         this.iid = iid;
+        this.sid = sid;
+        this.location = J$.iidToLocation(sid, iid);
         this.extra = extra;
     }
 
-    /**
-     * It returns true whether s1 and s2 are the same Label, false otherwise.
-     *
-     * @param {Label} s1
-     * @param {Label} s2
-     * @returns {boolean}
-     */
-    Label.equals = function (s1, s2) {
-        return (
-            s1.type === s2.type &&
-            s1.sid === s2.sid &&
-            s1.iid === s2.iid &&
-            s1.extra.length === s2.extra.length &&
-            s1.extra.every((value, index) => s2.extra[index] === value)
-        );
-    };
-
-    /**
-     * It returns a string that represents this Label.
-     *
-     * @returns {string}
-     */
     Label.prototype.toString = function () {
-        return `(${JSON.stringify(this.type)}, ${sandbox.iidToLocation(this.sid, this.iid)}${this.extra.length > 0 ? (", " + this.extra.map(x => JSON.stringify(x)).join(", ")) : ""})`;
+        return `${this.location}: ` +
+            `Label(${this.name}${this.extra.length > 0 ? ", " + this.extra.map(e => JSON.stringify(e)).join(", ") : ""})`;
     };
 
-    /**
-     * Taint constructor
-     */
-    function Taint() {
-        this.status = [];
+    Label.equals = function (x, y) {
+        return (
+            x.name === y.name &&
+            x.iid === y.iid &&
+            x.sid === y.sid &&
+            x.extra.length === y.extra.length &&
+            x.extra.every((e, i) => y.extra[i] === e)
+        );
+    };
+
+    function Taint(labelSet) {
+        this.labelSet = labelSet;
     }
 
-    Taint.__bottomVal = new Taint();
-
-    /**
-     * It returns the bottom value of the Taint lattice (i.e., the empty set of Label).
-     *
-     * @returns {Taint}
-     */
-    Taint.bottom = function () {
-        return Taint.__bottomVal;
+    Taint.prototype.hasLabelWithName = function (name) {
+        return this.labelSet.some(label => label.name === name);
     };
 
-    /**
-     * It returns a new set of Label which is the set union of each set of Label in args.
-     *
-     * @param {Label[][]} args
-     * @returns {Label[]}
-     */
-    Taint.__statusJoin = function (...args) {
-        return args.reduce((a, x) => {
-            a.push(...x.filter(s2 => !a.some(s1 => Label.equals(s1, s2))));
-            return a;
-        }, []);
-    };
-
-    /**
-     * It returns a new Taint which is the set union of each Taint in args.
-     *
-     * @param {Taint[]} args
-     * @returns {Taint}
-     */
-    Taint.join = function (...args) {
-        if (args.length === 0) {
-            return Taint.bottom();
-        }
-        var result = new Taint();
-        result.status = Taint.__statusJoin(...args.map(t => t.status))
-        return result.status.length > 0 ? result : Taint.bottom();
-    };
-
-    /**
-     * It returns a copy of this Taint including the Label s.
-     *
-     * @param {Label} s
-     * @returns {Taint}
-     */
-    Taint.prototype.withLabel = function (s) {
-        if (s === null) {
-            return this;
-        }
-        var result = new Taint();
-        result.status = Taint.__statusJoin(this.status, [s]);
-        return result;
-    };
-
-    /**
-     * It returns a string that represents this Taint.
-     *
-     * @returns {string}
-     */
     Taint.prototype.toString = function () {
-        return "[" + this.status.map(s => s.toString()).join(", ") + "]";
-    }
-
-    /**
-     * Box constructor
-     */
-    function Box(x) {
-        this.val = x;
-    }
-
-    var $SafeUnboxing = Symbol("$SafeUnboxing");
-
-    /**
-     * It returns the value inside the Box.
-     * NOTE: safeUnboxing has to be set, so that it is possible to identify whether the box has been exposed to the user, which could break the script execution.
-     *
-     * @param {boolean} safeUnboxing
-     * @returns {any}
-     */
-    Box.prototype.valueOf = function (safeUnboxing) {
-        if (safeUnboxing !== $SafeUnboxing) {
-            throw new Error("Box has been exposed!");
-        }
-        return this.val;
+        return (
+            `Taint{` + (
+                this.labelSet.length > 0
+                    ? "\n" + this.labelSet.map(label => "  " + label.toString()).join(",\n") + "\n"
+                    : ""
+            ) + `}`
+        );
     };
 
-    /**
-     * It returns a string that represents this Box.
-     * NOTE: safeUnboxing has to be set, so that it is possible to identify whether the box has been exposed to the user, which could break the script execution.
-     *
-     * @param {boolean} safeUnboxing
-     * @returns {string}
-     */
-    Box.prototype.toString = function (safeUnboxing) {
-        if (safeUnboxing !== $SafeUnboxing) {
-            throw new Error("Box has been exposed!");
+    Taint.BOTTOM = new Taint([]);
+
+    Taint.join = function () {
+        if (arguments.length === 0) {
+            return Taint.BOTTOM;
         }
-        return `Box(${this.val})`;
+        const lsArgs = Array.from(arguments)
+            .filter(t => t !== Taint.BOTTOM)
+            .map(t => t.labelSet);
+        if (lsArgs.length === 0) {
+            return Taint.BOTTOM;
+        }
+        const lsResult = lsArgs.reduce((pred, curr) => [
+            ...pred,
+            ...curr.filter(lsCurr => !pred.some(lsPred => Label.equals(lsPred, lsCurr)))
+        ], []);
+        return new Taint(lsResult);
     };
 
-    /**
-     * It returns a boxed value with Taint t from the actual value x.
-     *
-     * @param {any} x
-     * @param {Taint} t
-     * @returns {any}
-     */
-    function box(x, t = Taint.bottom()) {
-        if (isPrimitive(x)) {
-            var boxed = new Box(x);
-            boxed.taint = t;
-            return boxed;
-        }
-        return x;
-    }
+    J$.FLOWS = [];
 
-    /**
-     * It returns the actual value and the corresponding Taint from the boxed value y.
-     *
-     * @param {any} y
-     * @returns {[any, Taint]}
-     */
-    function unbox(y) {
-        return y instanceof Box
-            ? [y.valueOf($SafeUnboxing), y.taint]
-            : [y, Taint.bottom()];
-    }
-
-    /**
-     * It returns the actual value and the corresponding Taint from each boxed value in ys.
-     *
-     * @param {any[]} ys
-     * @returns {[any[], Taint[]]}
-     */
-    function unboxAll(ys) {
-        return ys
-            .map(y => unbox(y))
-            .reduce((ut_ys, [u_y, t_y]) => {
-                ut_ys[0].push(u_y);
-                ut_ys[1].push(t_y);
-                return ut_ys;
-            }, [[], []]);
-    }
-
-    /**
-     * The collection of tainted flows.
-     *
-     * @type {[Taint, Label]}
-     */
-    var taintedFlows = [];
-
-    /**
-     * It collects the tainted flow from source Taint sourceTaint to sink Label sinkLabel, if sourceTaint is not the bottom value.
-     *
-     * @param {any} x The value from where the Taint comes from
-     * @param {Label} label The Label of the sink
-     */
     function sink(sourceTaint, sinkLabel) {
-        if (sourceTaint !== Taint.bottom()) {
-            taintedFlows.push([sourceTaint, sinkLabel]);
+        if (sourceTaint.hasLabelWithName("Storage.prototype.getItem") || sinkLabel.name === "Storage.prototype.setItem") {
+            J$.FLOWS.push([sourceTaint, sinkLabel]);
+            console.log(sourceTaint.toString() + " --> " + sinkLabel);
+        }
+    }
+
+    const SHADOW_MEMORY = new WeakMap();
+
+    function getPropertyOwner(obj, prop) {
+        for (; obj && !Object.getOwnPropertyDescriptor(obj, prop); obj = Object.getPrototypeOf(obj, prop));
+        return obj;
+    }
+
+    function hasOwnDataProperty(obj, prop) {
+        const d = Object.getOwnPropertyDescriptor(obj, prop);
+        return (!!d && (!d.get && !d.set));
+    }
+
+    function getPropertyTaint(obj, prop) {
+        const owner = getPropertyOwner(obj, prop);
+        if (owner && hasOwnDataProperty(owner, prop)) {
+            const ts = SHADOW_MEMORY.get(owner);
+            return (ts ? (ts.get(prop) || Taint.BOTTOM) : Taint.BOTTOM);
+        } else {
+            return Taint.BOTTOM;
+        }
+    }
+
+    function putPropertyTaint(obj, prop, t) {
+        const owner = getPropertyOwner(obj, prop);
+        if (!owner || hasOwnDataProperty(owner, prop)) {
+            const ts = SHADOW_MEMORY.get(obj) || SHADOW_MEMORY.set(obj, new Map()).get(obj);
+            ts.set(prop, t);
+            putFieldInsensitiveTaint(obj, t);
+        }
+    }
+
+    function deletePropertyTaint(obj, prop) {
+        const ts = SHADOW_MEMORY.get(obj);
+        if (ts) ts.delete(prop);
+    }
+
+    function Scope(chain) {
+        this.local = new Map();
+        this.chain = chain;
+    }
+
+    function getVariableOwnerScope(scope, name) {
+        for (; scope && !scope.local.has(name); scope = scope.chain);
+        return scope;
+    }
+
+    function declareVariable(scope, name, t) {
+        if (scope) {
+            scope.local.set(name, t);
+        } else {
+            putPropertyTaint(global, name, t);
         }
     };
 
-    /**
-     * It reports all the tainted flows that have been collected.
-     */
-    function report() {
-        for (var flow of taintedFlows) {
-            console.log(flow);
+    function getVariableTaint(scope, name) {
+        if (name === "this") return Taint.BOTTOM;
+        const ownerScope = getVariableOwnerScope(scope, name);
+        return (ownerScope ? ownerScope.local.get(name) : getPropertyTaint(global, name));
+    }
+
+    function putVariableTaint(scope, name, t) {
+        if (name === "this") return;
+        const ownerScope = getVariableOwnerScope(scope, name);
+        if (ownerScope) {
+            ownerScope.local.set(name, t);
+        } else {
+            putPropertyTaint(global, name, t);
+        }
+    }
+
+    const PASSIVE_CONTEXT = {
+        argTaint: function () {
+            return Taint.BOTTOM;
+        },
+        get retTaint() {
+            return Taint.BOTTOM;
         }
     };
 
-    /* Utils */
-
-    /**
-     * It returns true whether x is a JS primitive value, false otherwise.
-     *
-     * @param {any} x
-     * @returns {boolean}
-     */
-    function isPrimitive(x) {
-        return (
-            x === null ||
-            ["undefined", "boolean", "number", "bigint", "string", "symbol"].includes(typeof x)
-        );
-    }
-
-    var $UserFunction = Symbol("$UserFunction");
-
-    /**
-     * It returns true whether x is a user function, false otherwise.
-     *
-     * @param {any} x
-     * @returns {boolean}
-     */
-    function isUserFunction(x) {
-        return (
-            typeof x === "function" &&
-            typeof x[$UserFunction] === "boolean" &&
-            x[$UserFunction]
-        );
-    }
-
-    /**
-     * TaintAnalysis class
-     */
-    function TaintAnalysis() {
-
-        // Do not let Jalangi perform this operation
-        this.getFieldPre = function (iid, base, offset, isComputed, isOpAssign, isMethodCall) {
-            return { base: base, offset: offset, skip: true };
-        };
-
-        this.getField = function (iid, base, offset, val, isComputed, isOpAssign, isMethodCall) {
-            var [u_base, t_base] = unbox(base);
-            var [u_offset, t_offset] = unbox(offset);
-
-            var u_result = u_base[u_offset];
-
-            var documentCookie = (u_base === window.document && u_offset === "cookie");
-            var t_result = Taint.join(t_base, t_offset)
-                .withLabel(documentCookie ? new Label("document.cookie", iid) : null);
-
-            return { result: box(u_result, t_result) };
-        };
-
-        // Do not let Jalangi perform this operation
-        this.putFieldPre = function (iid, base, offset, val, isComputed, isOpAssign) {
-            return { base: base, offset: offset, val: val, skip: true };
-        };
-
-        this.putField = function (iid, base, offset, val, isComputed, isOpAssign) {
-            var [u_base, t_base] = unbox(base);
-            var [u_offset, t_offset] = unbox(offset);
-
-            /*
-             * One does not simply do:
-             *
-             *   u_base[u_offset] = val;
-             *
-             * If the property has a setter and it is a native function,
-             * the boxed value will be exposed!
-             * It is necessary to unbox val before doing the assignment.
-             */
-            var setter = u_base.__lookupSetter__(u_offset);
-            if (setter !== undefined && !isUserFunction(setter)) {
-                var [u_val, t_val] = unbox(val);
-                u_base[u_offset] = u_val;
-            } else {
-                u_base[u_offset] = val;
+    function makeOneByOneContext(ts, initRetTaint) {
+        let retTaint = initRetTaint || Taint.BOTTOM;
+        return {
+            argTaint: function (i) {
+                return (i < ts.length ? ts[i] : Taint.BOTTOM);
+            },
+            get retTaint() {
+                return retTaint;
+            },
+            set retTaint(t1) {
+                retTaint = Taint.join(retTaint, t1);
             }
-
-            return { result: val };
         };
+    }
 
-        // Do not let Jalangi perform this operation if f is a native function, i.e. the code is hidden
+    function makeOneForAllWithFeedbackContext(t) {
+        return {
+            argTaint: function () {
+                return t;
+            },
+            get retTaint() {
+                return t;
+            },
+            set retTaint(t1) {
+                t = Taint.join(t, t1);
+            }
+        }
+    }
+
+    function Frame(scope, context) {
+        this.scope = scope;
+        this.expressionStack = [];
+        this.context = context;
+        this.calleeContext = PASSIVE_CONTEXT;
+    }
+
+    const FRAME_STACK = [new Frame(new Scope(null), PASSIVE_CONTEXT)];
+
+    function topFrame() {
+        return FRAME_STACK[FRAME_STACK.length - 1];
+    }
+
+    function isPrimitive(val) {
+        if (val === undefined || val === null) {
+            return true;
+        }
+        switch (typeof val) {
+            case "boolean":
+            case "number":
+            case "string":
+            case "bigint":
+            case "symbol":
+                return true;
+        }
+        return false;
+    }
+
+    function isObject(val) {
+        return !isPrimitive(val);
+    }
+
+    function isObjectLiteral(val) {
+        if (isObject(val)) {
+            const constructor = val["constructor"];
+            return (constructor === Object || isUserFunction(constructor));
+        }
+        return false;
+    }
+
+    function isArray(val) {
+        if (isObject(val)) {
+            const constructor = val["constructor"];
+            return (constructor === Array);
+        }
+        return false;
+    }
+
+    const $UserFunction = Symbol("$UserFunction");
+
+    const $ScopeChain = Symbol("$ScopeChain");
+
+    function isFunction(val) {
+        return (typeof val === "function");
+    }
+
+    function isUserFunction(val) {
+        return isFunction(val) && !!val[$UserFunction];
+    }
+
+    function isNativeFunction(val) {
+        return isFunction(val) && !val[$UserFunction];
+    }
+
+    function initObjectLiteral(obj) {
+        const props = Object.keys(obj).reverse();
+        const ds = Object.getOwnPropertyDescriptors(obj);
+        const dataPropsCount = props
+            .reduce((sum, p) => {
+                const d = ds[p];
+                return sum + (d.get || d.set ? 1 : 0);
+            }, 0);
+        const accessorsCount = props
+            .reduce((sum, p) => {
+                const d = ds[p];
+                return sum + (d.get && d.set ? 2 : (d.get || d.set ? 1 : 0));
+            }, 0);
+        for (let i = 0; i < accessorsCount; ++i) {
+            topFrame().expressionStack.pop();
+        }
+        const hasIndexProperty = props
+            .some(p => {
+                const pNum = parseInt(p);
+                return (pNum !== NaN && pNum >= 0 && p === String(pNum));
+            });
+        const definesProto = (Object.getPrototypeOf(obj) !== Object.prototype);
+        if (hasIndexProperty || definesProto) {
+            let t = Taint.BOTTOM;
+            for (let i = 0; i < dataPropsCount; ++i) {
+                t = Taint.join(t, topFrame().expressionStack.pop());
+            }
+            if (definesProto) {
+                t = Taint.join(t, topFrame().expressionStack.pop());
+            }
+            for (let p of props) {
+                const d = ds[p];
+                if (!d.get && !d.set) {
+                    putPropertyTaint(obj, p, t);
+                }
+            }
+        } else {
+            for (let p of props) {
+                const d = ds[p];
+                if (!d.get && !d.set) {
+                    putPropertyTaint(obj, p, topFrame().expressionStack.pop());
+                }
+            }
+        }
+    }
+
+    function initArray(arr) {
+        const indexes = Object.keys(arr).reverse();
+        for (let i of indexes) {
+            putPropertyTaint(arr, i, topFrame().expressionStack.pop());
+        }
+    }
+
+    function initFunction(f) {
+        f[$UserFunction] = true;
+        f[$ScopeChain] = topFrame().scope;
+    }
+
+    const $FieldInsensitiveTaint = Symbol("$FieldInsensitiveTaint");
+
+    function getFieldInsensitiveTaint(obj) {
+        const ts = SHADOW_MEMORY.get(obj);
+        return (ts ? (ts.get($FieldInsensitiveTaint) || Taint.BOTTOM) : Taint.BOTTOM);
+    }
+
+    function putFieldInsensitiveTaint(obj, t) {
+        const ts = SHADOW_MEMORY.get(obj) || SHADOW_MEMORY.set(obj, new Map()).get(obj);
+        ts.set($FieldInsensitiveTaint, Taint.join(ts.get($FieldInsensitiveTaint) || Taint.BOTTOM, t));
+    }
+
+    function deepTaint(obj, __visited__ = new WeakSet()) {
+        if (__visited__.has(obj)) return Taint.BOTTOM;
+        __visited__.add(obj);
+        let t = getFieldInsensitiveTaint(obj);
+        const ds = Object.getOwnPropertyDescriptors(obj);
+        for (let k in ds) {
+            if (ds[k].get || ds[k].set) continue;
+            if (isObject(obj[k])) {
+                t = Taint.join(t, deepTaint(obj[k], __visited__));
+            }
+        }
+        return t;
+    }
+
+    function shallowTaint(obj) {
+        return getFieldInsensitiveTaint(obj);
+    }
+
+    function deepPropagate(obj, t, __visited__ = new WeakSet()) {
+        if (__visited__.has(obj)) return;
+        __visited__.add(obj);
+        putFieldInsensitiveTaint(obj, t);
+        var ds = Object.getOwnPropertyDescriptors(obj);
+        for (var k in ds) {
+            if (ds[k].get || ds[k].set) continue;
+            if (isObject(obj[k])) {
+                deepPropagate(obj[k], t, __visited__);
+            }
+        }
+    }
+
+    function shallowPropagate(obj, t) {
+        putFieldInsensitiveTaint(obj, t);
+    }
+
+    function MyAnalysis() {
+
         this.invokeFunPre = function (iid, f, base, args, isConstructor, isMethod, functionIid, functionSid) {
-            return { f: f, base: base, args: args, skip: true };
+            const tArgs = [];
+            for (let i = 0; i < args.length; ++i) {
+                tArgs.push(topFrame().expressionStack.pop());
+            }
+            tArgs.reverse();
+            tArgs.forEach((_, i) => {
+                if (isObject(args[i])) tArgs[i] = shallowTaint(args[i]);
+            });
+            let tBase = Taint.BOTTOM;
+            if (isMethod) {
+                tBase = topFrame().expressionStack.pop();
+                if (isObject(base)) tBase = shallowTaint(base);
+            }
+            if (isUserFunction(f)) {
+                topFrame().calleeContext = makeOneByOneContext(tArgs);
+            } else {
+                topFrame().calleeContext = makeOneForAllWithFeedbackContext(Taint.join(tBase, ...tArgs));
+            }
+            invokeFunSinks(iid, f, base, tBase, args, tArgs, topFrame().calleeContext.retTaint);
         };
+
+        function storageInstance(obj) {
+            return (
+                obj === global.localStorage ? "localStorage" : (
+                    obj === global.sessionStorage ? "sessionStorage" : "unknown"));
+        }
+
+        function invokeFunSources(iid, f, base, args, result, tResult) {
+            if (f === global.Storage.prototype.getItem) {
+                const instance = storageInstance(base);
+                const key = args[0];
+                return Taint.join(tResult, new Taint([new Label("Storage.prototype.getItem", iid, J$.sid, [instance, key])]));
+            }
+            return tResult;
+        }
+
+        function invokeFunSinks(iid, f, base, tBase, args, tArgs, tResultPre) {
+            if (f === global.Storage.prototype.setItem) {
+                const instance = storageInstance(base);
+                const key = args[0];
+                sink(tArgs[1], new Label("Storage.prototype.setItem", iid, J$.sid, [instance, key]));
+            } else if (base instanceof global.XMLHttpRequest) {
+                sink(tResultPre, new Label("XMLHttpRequest.prototype.<f>", iid, J$.sid, [f.name]));
+            } else if (f === global.navigator.sendBeacon) {
+                sink(tResultPre, new Label("navigator.sendBeacon", iid, J$.sid));
+            } else if (f === global.Element.prototype.setAttribute) {
+                sink(tResultPre, new Label("Element.prototype.setAttribute", iid, J$.sid, [args[0]]));
+            }
+        }
 
         this.invokeFun = function (iid, f, base, args, result, isConstructor, isMethod, functionIid, functionSid) {
-            if (!isUserFunction(f)) {
-                var [u_f, t_f] = unbox(f);
-                var [u_base, t_base] = unbox(base);
-                var [u_args, t_args] = unboxAll(Array.from(args));
-
-                /*
-                 * Wrap each native function passed as argument to a native
-                 * function call, so that it is possible to unbox the values
-                 * passed as arguments to a possible call of such function.
-                 */
-                u_args = u_args.map(u_a =>
-                    typeof u_a === "function" && !isUserFunction(u_a)
-                    ? (function(...args1) {
-                        var [u_args1, t_args1] = unboxAll(args1);
-                        var u_result1 = u_a.call(null, ...u_args1);
-                        var t_result1 = Taint.join(...t_args1);
-                        return box(u_result1, t_result1);
-                    }).bind(null)
-                    : u_a);
-
-                var u_result = isConstructor
-                    ? new u_f(...u_args)
-                    : u_f.call(u_base, ...u_args);
-
-                var t_result = isConstructor
-                    ? Taint.join(t_f, ...t_args)
-                    : Taint.join(t_base, t_f, ...t_args);
-                if (f === Storage.prototype.getItem || f === Storage.prototype.setItem) {
-                    var instance = (
-                        base === window.localStorage ? "localStorage" : (
-                            base === window.sessionStorage ? "sessionStorage" : "unknown"));
-
-                    if (f === Storage.prototype.getItem) {
-                        t_result = t_result
-                            .withLabel(new Label("Storage.getItem", iid, instance, u_args[0]));
-                    } else {
-                        sink(t_args[1], new Label("Storage.setItem", iid, instance, u_args[0]));
-                    }
-                } else if (f === XMLHttpRequest.prototype.open) {
-                    sink(t_args[1], new Label("XMLHTTPRequest.open", iid));
-                }
-
-                return { result: box(u_result, t_result) };
-            } else {
-                var [u_f, t_f] = unbox(f);
-                var [u_base, t_base] = unbox(base);
-
-                var result = isConstructor
-                    ? new u_f(...args)
-                    : u_f.call(u_base, ...args);
-
-                return { result: result };
+            let tResult = topFrame().calleeContext.retTaint;
+            if (isObject(result)) {
+                shallowPropagate(result, tResult);
+                tResult = Taint.BOTTOM;
             }
-        };
-
-        this.conditional = function (iid, result) {
-            var [u_result, t_result] = unbox(result);
-            return {result: u_result};
-        };
-
-        // Do not let Jalangi perform this operation
-        this.binaryPre = function (iid, op, left, right, isOpAssign, isSwitchCaseComparison, isComputed) {
-            return { op: op, left: left, right: right, skip: true };
-        };
-
-        function applyBinary(op, x, y) {
-            switch (op) {
-                case "+":
-                    return x + y;
-                case "-":
-                    return x - y;
-                case "*":
-                    return x * y;
-                case "/":
-                    return x / y;
-                case "%":
-                    return x % y;
-                case "&":
-                    return x & y;
-                case "|":
-                    return x | y;
-                case "^":
-                    return x ^ y;
-                case "<<":
-                    return x << y;
-                case ">>":
-                    return x >> y;
-                case ">>>":
-                    return x >>> y;
-                case "<":
-                    return x < y;
-                case ">":
-                    return x > y;
-                case "<=":
-                    return x <= y;
-                case ">=":
-                    return x >= y;
-                case "==":
-                    return x == y;
-                case "!=":
-                    return x != y;
-                case "===":
-                    return x === y;
-                case "!==":
-                    return x !== y;
-                case "instanceof":
-                    return x instanceof y;
-                case "delete":
-                    return delete x[y];
-                case "in":
-                    return x in y;
-            }
-        }
-
-        this.binary = function (iid, op, left, right, result, isOpAssign, isSwitchCaseComparison, isComputed) {
-            var [u_left, t_left] = unbox(left);
-            var [u_right, t_right] = unbox(right);
-
-            var u_result = applyBinary(op, u_left, u_right);
-
-            var t_result = Taint.join(t_left, t_right);
-
-            return { result: box(u_result, t_result) };
-        };
-
-        // Do not let Jalangi perform this operation
-        this.unaryPre = function (iid, op, left) {
-            return { op: op, left: left, skip: true };
-        };
-
-        function applyUnary(op, x) {
-            switch (op) {
-                case "+":
-                    return +x;
-                case "-":
-                    return -x;
-                case "~":
-                    return ~x;
-                case "!":
-                    return !x;
-                case "typeof":
-                    return typeof x;
-                case "void":
-                    return void x;
-            }
-        }
-
-        this.unary = function (iid, op, left, result) {
-            var [u_left, t_left] = unbox(left);
-
-            var u_result = applyUnary(op, u_left);
-
-            var t_result = t_left;
-
-            return { result: box(u_result, t_result) };
+            tResult = invokeFunSources(iid, f, base, args, result, tResult);
+            topFrame().expressionStack.push(tResult);
+            topFrame().calleeContext = PASSIVE_CONTEXT;
         };
 
         this.literal = function (iid, val, hasGetterSetter) {
-            if (typeof val === "function") {
-                val[$UserFunction] = true;
+            if (isFunction(val)) {
+                initFunction(val);
+            } else if (isObjectLiteral(val)) {
+                initObjectLiteral(val);
+            } else if (isArray(val)) {
+                initArray(val);
             }
-
-            return { result: box(val) };
+            topFrame().expressionStack.push(Taint.BOTTOM);
         };
 
-        this.endExecution = function () {
-            console.log("endExecution()");
-            report();
+        this.forinObject = function (iid, val) {
+            topFrame().expressionStack.pop();
         };
-    };
 
-    sandbox.analysis = new TaintAnalysis();
+        this.declare = function (iid, name, val, isArgument, argumentIndex, isCatchParam) {
+            if (isArgument) {
+                if (argumentIndex === -1) {
+                    const args = val;
+                    for (let i = 0; i < args.length; ++i) {
+                        putPropertyTaint(args, i, topFrame().context.argTaint(i));
+                    }
+                } else {
+                    declareVariable(topFrame().scope, name, topFrame().context.argTaint(argumentIndex));
+                }
+            } else if (isCatchParam) {
+                topFrame().expressionStack.length = 0;
+                declareVariable(topFrame().scope, Taint.BOTTOM);
+            } else {
+                const tVal = topFrame().expressionStack.pop() || Taint.BOTTOM;
+                declareVariable(topFrame().scope, name, tVal);
+            }
+        };
+
+        this.getFieldPre = function (iid, base, offset, isComputed, isOpAssign, isMethodCall) {
+            if (isComputed) topFrame().expressionStack.pop();
+            const tBase = topFrame().expressionStack.pop();
+            topFrame().calleeContext = makeOneByOneContext([], Taint.join(tBase, getPropertyTaint(base, offset)));
+            getFieldSinks(iid, base, tBase, offset, topFrame().calleeContext.retTaint);
+            if (isOpAssign) {
+                topFrame().expressionStack.push(tBase);
+                if (isComputed) topFrame().expressionStack.push(Taint.BOTTOM);
+            }
+        };
+
+        function getFieldSources(iid, base, offset, val, tVal) {
+            if (base instanceof global.Storage) {
+                const instance = storageInstance(base);
+                const key = offset;
+                return Taint.join(tVal, new Taint([
+                    new Label("[Storage].<p>", iid, J$.sid, [instance, key])
+                ]));
+            } else if (base === global.document && offset === "cookie") {
+                return Taint.join(tVal, new Taint([
+                    new Label("document.cookie", iid, J$.sid)
+                ]));
+            } else if (base instanceof global.Element) {
+                return Taint.join(tVal, new Taint([
+                    new Label("[Element].<p>", iid, J$.sid, [offset])
+                ]));
+            } else if (base instanceof global.XMLHttpRequest && (offset === "response" || offset === "responseText" || offset === "responseURL" || offset === "responseXML")) {
+                return Taint.join(tVal, new Taint([
+                    new Label("XMLHttpRequest.prototype.response", iid, J$.sid)
+                ]));
+            }
+            return tVal;
+        }
+
+        function getFieldSinks(iid, base, tBase, offset, tResultPre) {
+        }
+
+        this.getField = function (iid, base, offset, val, isComputed, isOpAssign, isMethodCall) {
+            let tVal = topFrame().calleeContext.retTaint;
+            tVal = getFieldSources(iid, base, offset, val, tVal);
+            topFrame().expressionStack.push(tVal);
+            topFrame().calleeContext = PASSIVE_CONTEXT;
+        };
+
+        this.putFieldPre = function (iid, base, offset, val, isComputed, isOpAssign) {
+            const tVal = topFrame().expressionStack.pop();
+            if (isComputed) topFrame().expressionStack.pop();
+            const tBase = topFrame().expressionStack.pop();
+            topFrame().calleeContext = makeOneByOneContext([tVal], tVal);
+            putFieldSinks(iid, base, tBase, offset, topFrame().calleeContext.retTaint);
+        };
+
+        function putFieldSources(iid, base, offset, val, tVal) {
+            return tVal;
+        }
+
+        function putFieldSinks(iid, base, tBase, offset, tResultPre) {
+            if (base instanceof global.Storage) {
+                const instance = storageInstance(base);
+                const key = offset;
+                sink(tResultPre, new Label("[Storage].<p>", iid, J$.sid, [instance, key]));
+            } else if (base === global.document && offset === "cookie") {
+                sink(tResultPre, new Label("document.cookie", iid, J$.sid));
+            } else if (base instanceof global.Element) {
+                sink(tResultPre, new Label("[Element].<p>", iid, J$.sid, [offset]));
+            }
+        }
+
+        this.putField = function (iid, base, offset, val, isComputed, isOpAssign) {
+            let tVal = topFrame().calleeContext.retTaint;
+            tVal = putFieldSources(iid, base, offset, val, tVal);
+            topFrame().calleeContext = PASSIVE_CONTEXT;
+            topFrame().expressionStack.push(tVal);
+            putPropertyTaint(base, offset, tVal);
+        };
+
+        this.read = function (iid, name, val, isGlobal, isScriptLocal) {
+            const tVal = getVariableTaint(topFrame().scope, name);
+            topFrame().expressionStack.push(tVal);
+        };
+
+        this.write = function (iid, name, val, previousVal, isGlobal, isScriptLocal) {
+            const tVal = topFrame().expressionStack.pop() || Taint.BOTTOM;
+            putVariableTaint(topFrame().scope, name, tVal);
+            topFrame().expressionStack.push(tVal);
+        };
+
+        this._return = function (iid, val) {
+            topFrame().context.retTaint = topFrame().expressionStack.pop() || Taint.BOTTOM;
+        };
+
+        // this._throw = function (iid, val) {};
+
+        // this._with = function (iid, val) {};
+
+        this.functionEnter = function (iid, f, self, args) {
+            const calleeContext = topFrame().calleeContext;
+            FRAME_STACK.push(new Frame(new Scope(f[$ScopeChain]), calleeContext));
+        };
+
+        this.functionExit = function (iid, returnVal, wrappedExceptionVal) {
+            FRAME_STACK.pop();
+        };
+
+        this.binaryPre = function (iid, op, left, right, isOpAssign, isSwitchCaseComparison, isComputed) {
+            const tRhs = (op !== "delete" || isComputed ? topFrame().expressionStack.pop() : Taint.BOTTOM);
+            const tLhs = (!isSwitchCaseComparison ? topFrame().expressionStack.pop() : Taint.BOTTOM);
+            topFrame().calleeContext = makeOneByOneContext([], Taint.join(tLhs, tRhs));
+        };
+
+        this.binary = function (iid, op, left, right, result, isOpAssign, isSwitchCaseComparison, isComputed) {
+            topFrame().expressionStack.push(topFrame().calleeContext.retTaint);
+            topFrame().calleeContext = PASSIVE_CONTEXT;
+            if (op === "delete" && result) {
+                deletePropertyTaint(left, right);
+            }
+        };
+
+        this.unaryPre = function (iid, op, val) {
+            const tVal = topFrame().expressionStack.pop();
+            topFrame().calleeContext = makeOneByOneContext([], tVal);
+        };
+
+        this.unary = function (iid, op, val, result) {
+            topFrame().expressionStack.push(topFrame().calleeContext.retTaint);
+            topFrame().calleeContext = PASSIVE_CONTEXT;
+        };
+
+        // this.conditional = function (iid, result) {};
+
+        this.endExpression = function (iid) {
+            topFrame().expressionStack.pop();
+        };
+
+        // this.endExecution = function () {};
+    }
+
+    J$.analysis = new MyAnalysis();
 })(J$);
