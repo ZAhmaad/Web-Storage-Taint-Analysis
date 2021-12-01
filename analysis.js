@@ -6,7 +6,7 @@
  *
  */
 
-(function (J$) {
+ (function (J$) {
 
     const global = this;
 
@@ -15,7 +15,13 @@
         this.iid = iid;
         this.sid = sid;
         this.location = J$.iidToLocation(sid, iid);
-        this.extra = extra;
+        this.extra = extra.map(e => {
+            try {
+                return typeof e === "object" ? JSON.stringify(e) : e;
+            } catch (e) {
+                return null;
+            }
+        });
     }
 
     Label.prototype.toString = function () {
@@ -73,7 +79,7 @@
     J$.FLOWS = [];
 
     function sink(sourceTaint, sinkLabel) {
-        if (sourceTaint.hasLabelWithName("Storage.prototype.getItem") || sinkLabel.name === "Storage.prototype.setItem") {
+        if (sourceTaint.hasLabelWithName("[Storage].getItem()") || sinkLabel.name === "[Storage].setItem()") {
             J$.FLOWS.push([sourceTaint, sinkLabel]);
             console.log(sourceTaint.toString() + " --> " + sinkLabel);
         }
@@ -149,7 +155,7 @@
         }
     }
 
-    const PASSIVE_CONTEXT = {
+    const BOTTOM_CONTEXT = {
         argTaint: function () {
             return Taint.BOTTOM;
         },
@@ -191,10 +197,10 @@
         this.scope = scope;
         this.expressionStack = [];
         this.context = context;
-        this.calleeContext = PASSIVE_CONTEXT;
+        this.calleeContext = BOTTOM_CONTEXT;
     }
 
-    const FRAME_STACK = [new Frame(new Scope(null), PASSIVE_CONTEXT)];
+    const FRAME_STACK = [new Frame(new Scope(null), BOTTOM_CONTEXT)];
 
     function topFrame() {
         return FRAME_STACK[FRAME_STACK.length - 1];
@@ -390,7 +396,8 @@
             if (f === global.Storage.prototype.getItem) {
                 const instance = storageInstance(base);
                 const key = args[0];
-                return Taint.join(tResult, new Taint([new Label("Storage.prototype.getItem", iid, J$.sid, [instance, key])]));
+                const val = result;
+                return Taint.join(tResult, new Taint([new Label("[Storage].getItem()", iid, J$.sid, [instance, key, val])]));
             }
             return tResult;
         }
@@ -399,13 +406,20 @@
             if (f === global.Storage.prototype.setItem) {
                 const instance = storageInstance(base);
                 const key = args[0];
-                sink(tArgs[1], new Label("Storage.prototype.setItem", iid, J$.sid, [instance, key]));
+                const val = args[1];
+                sink(tArgs[1], new Label("[Storage].setItem()", iid, J$.sid, [instance, key, val]));
             } else if (base instanceof global.XMLHttpRequest) {
-                sink(tResultPre, new Label("XMLHttpRequest.prototype.<f>", iid, J$.sid, [f.name]));
+                if (f === global.XMLHttpRequest.prototype.open) {
+                    base.method = args[0];
+                    base.url = args[1];
+                }
+                sink(tResultPre, new Label("[XMLHttpRequest][f]()", iid, J$.sid, [base.method, base.url, f.name, ...args]));
+            } else if (f === global.fetch) {
+                sink(tResultPre, new Label("fetch()", iid, J$.sid, [...args]));
             } else if (f === global.navigator.sendBeacon) {
-                sink(tResultPre, new Label("navigator.sendBeacon", iid, J$.sid));
+                sink(tResultPre, new Label("navigator.sendBeacon()", iid, J$.sid, [...args]));
             } else if (f === global.Element.prototype.setAttribute) {
-                sink(tResultPre, new Label("Element.prototype.setAttribute", iid, J$.sid, [args[0]]));
+                sink(tResultPre, new Label("[Element].setAttribute()", iid, J$.sid, [base.localName, ...args]));
             }
         }
 
@@ -417,7 +431,7 @@
             }
             tResult = invokeFunSources(iid, f, base, args, result, tResult);
             topFrame().expressionStack.push(tResult);
-            topFrame().calleeContext = PASSIVE_CONTEXT;
+            topFrame().calleeContext = BOTTOM_CONTEXT;
         };
 
         this.literal = function (iid, val, hasGetterSetter) {
@@ -470,19 +484,27 @@
                 const instance = storageInstance(base);
                 const key = offset;
                 return Taint.join(tVal, new Taint([
-                    new Label("[Storage].<p>", iid, J$.sid, [instance, key])
+                    new Label("[Storage][p]", iid, J$.sid, [instance, key, val])
                 ]));
             } else if (base === global.document && offset === "cookie") {
                 return Taint.join(tVal, new Taint([
-                    new Label("document.cookie", iid, J$.sid)
+                    new Label("document.cookie", iid, J$.sid, [val])
                 ]));
             } else if (base instanceof global.Element) {
                 return Taint.join(tVal, new Taint([
-                    new Label("[Element].<p>", iid, J$.sid, [offset])
+                    new Label("[Element][p]", iid, J$.sid, [base.localName, offset, val])
                 ]));
             } else if (base instanceof global.XMLHttpRequest && (offset === "response" || offset === "responseText" || offset === "responseURL" || offset === "responseXML")) {
                 return Taint.join(tVal, new Taint([
-                    new Label("XMLHttpRequest.prototype.response", iid, J$.sid)
+                    new Label("[XMLHttpRequest].response", iid, J$.sid, [base.method, base.url, offset, val])
+                ]));
+            } else if (base === global.navigator && isPrimitive(val)) {
+                return Taint.join(tVal, new Taint([
+                    new Label("navigator[p]", iid, J$.sid, [offset, val])
+                ]));
+            } else if (base === global && offset === "origin") {
+                return Taint.join(tVal, new Taint([
+                    new Label("origin", iid, J$.sid, [val])
                 ]));
             }
             return tVal;
@@ -495,7 +517,7 @@
             let tVal = topFrame().calleeContext.retTaint;
             tVal = getFieldSources(iid, base, offset, val, tVal);
             topFrame().expressionStack.push(tVal);
-            topFrame().calleeContext = PASSIVE_CONTEXT;
+            topFrame().calleeContext = BOTTOM_CONTEXT;
         };
 
         this.putFieldPre = function (iid, base, offset, val, isComputed, isOpAssign) {
@@ -503,29 +525,29 @@
             if (isComputed) topFrame().expressionStack.pop();
             const tBase = topFrame().expressionStack.pop();
             topFrame().calleeContext = makeOneByOneContext([tVal], tVal);
-            putFieldSinks(iid, base, tBase, offset, topFrame().calleeContext.retTaint);
+            putFieldSinks(iid, base, tBase, offset, val, topFrame().calleeContext.retTaint);
         };
 
         function putFieldSources(iid, base, offset, val, tVal) {
             return tVal;
         }
 
-        function putFieldSinks(iid, base, tBase, offset, tResultPre) {
+        function putFieldSinks(iid, base, tBase, offset, val, tResultPre) {
             if (base instanceof global.Storage) {
                 const instance = storageInstance(base);
                 const key = offset;
-                sink(tResultPre, new Label("[Storage].<p>", iid, J$.sid, [instance, key]));
+                sink(tResultPre, new Label("[Storage][p]", iid, J$.sid, [instance, key, val]));
             } else if (base === global.document && offset === "cookie") {
-                sink(tResultPre, new Label("document.cookie", iid, J$.sid));
+                sink(tResultPre, new Label("document.cookie", iid, J$.sid, [val]));
             } else if (base instanceof global.Element) {
-                sink(tResultPre, new Label("[Element].<p>", iid, J$.sid, [offset]));
+                sink(tResultPre, new Label("[Element][p]", iid, J$.sid, [base.localName, offset, val]));
             }
         }
 
         this.putField = function (iid, base, offset, val, isComputed, isOpAssign) {
             let tVal = topFrame().calleeContext.retTaint;
             tVal = putFieldSources(iid, base, offset, val, tVal);
-            topFrame().calleeContext = PASSIVE_CONTEXT;
+            topFrame().calleeContext = BOTTOM_CONTEXT;
             topFrame().expressionStack.push(tVal);
             putPropertyTaint(base, offset, tVal);
         };
@@ -566,7 +588,7 @@
 
         this.binary = function (iid, op, left, right, result, isOpAssign, isSwitchCaseComparison, isComputed) {
             topFrame().expressionStack.push(topFrame().calleeContext.retTaint);
-            topFrame().calleeContext = PASSIVE_CONTEXT;
+            topFrame().calleeContext = BOTTOM_CONTEXT;
             if (op === "delete" && result) {
                 deletePropertyTaint(left, right);
             }
@@ -579,7 +601,7 @@
 
         this.unary = function (iid, op, val, result) {
             topFrame().expressionStack.push(topFrame().calleeContext.retTaint);
-            topFrame().calleeContext = PASSIVE_CONTEXT;
+            topFrame().calleeContext = BOTTOM_CONTEXT;
         };
 
         // this.conditional = function (iid, result) {};
