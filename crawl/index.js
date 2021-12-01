@@ -15,14 +15,16 @@
             "--ignore-certificate-errors-spki-list=" + process.env.PROXY_SPKI_FINGERPRINT,
             "--disable-web-security",
         ],
+        // headless: false,
     });
 
-    const startFrom = 0;
-
-    const sites = (await fsPromises.readFile("/home/eleumasc/tranco_9892.csv")).toString().split("\n").map(line => line.split(",")[1]);
+    const sites = (await fsPromises.readFile(process.argv[2]))
+        .toString()
+        .split("\n")
+        .map(line => line.split(",")[1])
+        .filter(s => s);
 
     for (let i in sites) {
-        if (i < startFrom) continue;
         const domain = sites[i];
         const url = "https://" + domain;
         console.log(`[${i}] ${url}`);
@@ -60,8 +62,10 @@ async function crawl(browser, url, domain) {
 
         try {
             await page.goto(url, {waitUntil: "load", timeout: 60000});
-            await new Promise(resolve => { setTimeout(resolve, 15000); });
+            await new Promise(resolve => { setTimeout(resolve, 10000); });
         } catch (e) { console.error(e); }
+
+        await page.evaluate(() => { debugger; });
 
         const flows = await Promise.race([
             page.evaluate(() => J$.FLOWS),
