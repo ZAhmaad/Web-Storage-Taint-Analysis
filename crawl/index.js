@@ -94,8 +94,6 @@
                 await new Promise(resolve => { setTimeout(resolve, 10000); });
             } catch (e) { console.error(e); }
 
-            await page.evaluate(() => { debugger; });
-
             const flows = await Promise.race([
                 page.evaluate(() => J$.FLOWS),
                 new Promise((_, reject) => { setTimeout(() => { reject(); }, 5000); })
