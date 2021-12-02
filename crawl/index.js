@@ -7,6 +7,7 @@
 
     const fs = require("fs");
     const fsPromises = fs.promises;
+    const chromeCookies = require("chrome-cookies-secure");
     const pptr = require("puppeteer");
 
     const browser = await pptr.launch({
@@ -36,53 +37,82 @@
     }
 
     await browser.close();
-})();
 
-async function crawl(browser, url, domain) {
-    const page = await browser.newPage();
-
-    const grepResult = [];
-
-    try {
-        page.on("request", async request => {
-            request.continue();
-        })
-
-        page.on("response", async response => {
-            if (response.request().resourceType() === "script" &&
-                response.headers()["content-type"] &&
-                response.headers()["content-type"].includes("javascript")) {
-                    const js = await response.text();
-                    const grepPartResult = grepMagicWords(js);
-                    grepResult.push([response.request().url(), grepPartResult]);
-            }
-        });
-
-        await page.setRequestInterception(true);
+    async function crawl(browser, url, domain) {
+        const page = await browser.newPage();
 
         try {
-            await page.goto(url, {waitUntil: "load", timeout: 60000});
-            await new Promise(resolve => { setTimeout(resolve, 10000); });
-        } catch (e) { console.error(e); }
+            const cookies = await new Promise((resolve, reject) => {
+                chromeCookies.getCookies(url, "puppeteer", function () {
+                    chromeCookies.getCookies(url, 'puppeteer', function (err, cookies) {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+                        cookies.forEach(cookie => {
+                            if (cookie["HttpOnly"]) {
+                                cookie["httpOnly"] = cookie["HttpOnly"];
+                                delete cookie["HttpOnly"];
+                            }
+                            if (cookie["Secure"]) {
+                                cookie["secure"] = cookie["Secure"];
+                                delete cookie["Secure"];
+                            }
+                            if (cookie["SameSite"]) {
+                                cookie["sameSite"] = cookie["SameSite"];
+                                delete cookie["SameSite"];
+                            }
+                        });
+                        resolve(cookies);
+                    }, "Default");
+                });
+            });
+            await page.setCookie(...cookies);
 
-        await page.evaluate(() => { debugger; });
+            const grepResult = [];
 
-        const flows = await Promise.race([
-            page.evaluate(() => J$.FLOWS),
-            new Promise((_, reject) => { setTimeout(() => { reject(); }, 5000); })
-        ]);
+            page.on("request", async request => {
+                request.continue();
+            })
 
-        return {url: url, grepResult: grepResult, flows: flows};
-    } finally {
-        await page.close();
-    }
+            page.on("response", async response => {
+                try {
+                    if (response.request().resourceType() === "script" &&
+                        response.headers()["content-type"] &&
+                        response.headers()["content-type"].includes("javascript")) {
+                            const js = await response.text();
+                            const grepPartResult = grepMagicWords(js);
+                            grepResult.push([response.request().url(), grepPartResult]);
+                    }
+                } catch (e) {}
+            });
 
-    function grepMagicWords(js) {
-        var re = /(?:\'|\")(?:g|s)etItem(?:\'|\")/g, match, result = [];
-        while (match = re.exec(js)) {
-            result.push(js.substring(match.index - 100, match.index + 100));
+            await page.setRequestInterception(true);
+
+            try {
+                await page.goto(url, {waitUntil: "load", timeout: 60000});
+                await new Promise(resolve => { setTimeout(resolve, 10000); });
+            } catch (e) { console.error(e); }
+
+            await page.evaluate(() => { debugger; });
+
+            const flows = await Promise.race([
+                page.evaluate(() => J$.FLOWS),
+                new Promise((_, reject) => { setTimeout(() => { reject(); }, 5000); })
+            ]);
+
+            return {url: url, grepResult: grepResult, flows: flows};
+        } finally {
+            await page.close();
         }
-        return result;
+
+        function grepMagicWords(js) {
+            var re = /(?:\'|\")(?:g|s)etItem(?:\'|\")/g, match, result = [];
+            while (match = re.exec(js)) {
+                result.push(js.substring(match.index - 100, match.index + 100));
+            }
+            return result;
+        }
     }
 
-}
+})();
