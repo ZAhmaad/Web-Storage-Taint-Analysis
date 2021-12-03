@@ -30,7 +30,7 @@
         const url = "https://" + domain;
         console.log(`[${i}] ${url}`);
         try {
-            await fsPromises.appendFile("out.txt", JSON.stringify(await crawl(browser, url, domain)) + "\n");
+            await fsPromises.appendFile("data.txt", JSON.stringify(await crawl(browser, url)) + "\n");
         } catch (e) {
             console.error(e);
         }
@@ -38,7 +38,7 @@
 
     await browser.close();
 
-    async function crawl(browser, url, domain) {
+    async function crawl(browser, url) {
         const page = await browser.newPage();
 
         try {
