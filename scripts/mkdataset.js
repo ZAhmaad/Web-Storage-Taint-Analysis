@@ -40,7 +40,7 @@ const fsPromises = fs.promises;
         return (result && result[1]);
     }
 
-    function putSid2ScriptUrlMap(sid2ScriptUrlMap, sid, scriptUrl) {
+    function putSidToScriptUrlMap(sid2ScriptUrlMap, sid, scriptUrl) {
         if (sid2ScriptUrlMap.has(sid)) {
             if (sid2ScriptUrlMap.get(sid) !== scriptUrl) {
                 throw new Error("Inconsistent mapping: sid -> scriptUrl");
@@ -56,7 +56,7 @@ const fsPromises = fs.promises;
             for (let lbl of [...flow[0].labelSet, flow[1]]) {
                 const rid = getRidByLocation(lbl.location);
                 const scriptUrl = rid && (rid2UrlMap.get(rid) || null);
-                putSid2ScriptUrlMap(sid2ScriptUrlMap, lbl.sid, scriptUrl);
+                putSidToScriptUrlMap(sid2ScriptUrlMap, lbl.sid, scriptUrl);
             }
         }
         return sid2ScriptUrlMap;
