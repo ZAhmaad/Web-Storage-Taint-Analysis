@@ -7,7 +7,6 @@
 
     const fs = require("fs");
     const fsPromises = fs.promises;
-    const chromeCookies = require("chrome-cookies-secure");
     const pptr = require("puppeteer");
 
     const browser = await pptr.launch({
@@ -42,33 +41,6 @@
         const page = await browser.newPage();
 
         try {
-            const cookies = await new Promise((resolve, reject) => {
-                chromeCookies.getCookies(url, "puppeteer", function () {
-                    chromeCookies.getCookies(url, 'puppeteer', function (err, cookies) {
-                        if (err) {
-                            reject(err);
-                            return;
-                        }
-                        cookies.forEach(cookie => {
-                            if (cookie["HttpOnly"]) {
-                                cookie["httpOnly"] = cookie["HttpOnly"];
-                                delete cookie["HttpOnly"];
-                            }
-                            if (cookie["Secure"]) {
-                                cookie["secure"] = cookie["Secure"];
-                                delete cookie["Secure"];
-                            }
-                            if (cookie["SameSite"]) {
-                                cookie["sameSite"] = cookie["SameSite"];
-                                delete cookie["SameSite"];
-                            }
-                        });
-                        resolve(cookies);
-                    }, "Default");
-                });
-            });
-            await page.setCookie(...cookies);
-
             const grepResult = [];
 
             page.on("request", async request => {
