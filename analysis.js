@@ -376,7 +376,7 @@
             let tBase = Taint.BOTTOM;
             if (isMethod) {
                 tBase = topFrame().expressionStack.pop();
-                if (isObject(base)) tBase = shallowTaint(base);
+                if (isObject(base)) tBase = Taint.join(tBase, shallowTaint(base));
             }
             if (isUserFunction(f)) {
                 topFrame().calleeContext = makeOneByOneContext(tArgs);
