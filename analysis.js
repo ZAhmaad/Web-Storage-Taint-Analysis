@@ -414,8 +414,6 @@
                     base.url = args[1];
                 }
                 sink(tResultPre, new Label("[XMLHttpRequest][f]()", iid, J$.sid, [base.method, base.url, f.name, ...args]));
-            } else if (f === global.fetch) {
-                sink(tResultPre, new Label("fetch()", iid, J$.sid, [...args]));
             } else if (f === global.navigator.sendBeacon) {
                 sink(tResultPre, new Label("navigator.sendBeacon()", iid, J$.sid, [...args]));
             } else if (f === global.Element.prototype.setAttribute) {
@@ -502,9 +500,17 @@
                 return Taint.join(tVal, new Taint([
                     new Label("navigator[p]", iid, J$.sid, [offset, val])
                 ]));
-            } else if (base === global && offset === "origin") {
+            } else if (base === global && offset === "location") {
                 return Taint.join(tVal, new Taint([
-                    new Label("origin", iid, J$.sid, [val])
+                    new Label("location", iid, J$.sid, ["window.location", val])
+                ]));
+            } else if (base === global.document && offset === "location") {
+                return Taint.join(tVal, new Taint([
+                    new Label("location", iid, J$.sid, ["document.location", val])
+                ]));
+            } else if (base === global.document && offset === "URL") {
+                return Taint.join(tVal, new Taint([
+                    new Label("location", iid, J$.sid, ["document.URL", val])
                 ]));
             }
             return tVal;
@@ -541,6 +547,12 @@
                 sink(tResultPre, new Label("document.cookie", iid, J$.sid, [val]));
             } else if (base instanceof global.Element) {
                 sink(tResultPre, new Label("[Element][p]", iid, J$.sid, [base.localName, offset, val]));
+            } else if (base === global && offset === "location") {
+                sink(tResultPre, new Label("location", iid, J$.sid, ["window.location", val]));
+            } else if (base === global.document && offset === "location") {
+                sink(tResultPre, new Label("location", iid, J$.sid, ["document.location", val]));
+            } else if (base === global.document && offset === "URL") {
+                sink(tResultPre, new Label("location", iid, J$.sid, ["document.location", val]));
             }
         }
 
