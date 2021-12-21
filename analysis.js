@@ -371,7 +371,7 @@
             }
             tArgs.reverse();
             tArgs.forEach((_, i) => {
-                if (isObject(args[i])) tArgs[i] = shallowTaint(args[i]);
+                if (isObject(args[i])) tArgs[i] = Taint.join(tArgs[i], shallowTaint(args[i]));
             });
             let tBase = Taint.BOTTOM;
             if (isMethod) {
@@ -552,7 +552,7 @@
             } else if (base === global.document && offset === "location") {
                 sink(tResultPre, new Label("location", iid, J$.sid, ["document.location", val]));
             } else if (base === global.document && offset === "URL") {
-                sink(tResultPre, new Label("location", iid, J$.sid, ["document.location", val]));
+                sink(tResultPre, new Label("location", iid, J$.sid, ["document.URL", val]));
             }
         }
 
