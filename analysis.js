@@ -496,7 +496,7 @@
                 return Taint.join(tVal, new Taint([
                     new Label("[XMLHttpRequest].response", iid, J$.sid, [base.method, base.url, offset, val])
                 ]));
-            } else if (base === global.navigator && isPrimitive(val)) {
+            } else if (base === global.navigator) {
                 return Taint.join(tVal, new Taint([
                     new Label("navigator[p]", iid, J$.sid, [offset, val])
                 ]));
@@ -547,12 +547,6 @@
                 sink(tResultPre, new Label("document.cookie", iid, J$.sid, [val]));
             } else if (base instanceof global.Element) {
                 sink(tResultPre, new Label("[Element][p]", iid, J$.sid, [base.localName, offset, val]));
-            } else if (base === global && offset === "location") {
-                sink(tResultPre, new Label("location", iid, J$.sid, ["window.location", val]));
-            } else if (base === global.document && offset === "location") {
-                sink(tResultPre, new Label("location", iid, J$.sid, ["document.location", val]));
-            } else if (base === global.document && offset === "URL") {
-                sink(tResultPre, new Label("location", iid, J$.sid, ["document.URL", val]));
             }
         }
 
