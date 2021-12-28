@@ -25,11 +25,10 @@
         .filter(s => s);
 
     for (let i in sites) {
-        const domain = sites[i];
-        const url = "https://" + domain;
-        console.log(`[${i}] ${url}`);
+        const site = sites[i];
+        console.log(`[${i}] ${site}`);
         try {
-            await fsPromises.appendFile("data.txt", JSON.stringify(await crawl(browser, url)) + "\n");
+            await fsPromises.appendFile("data.txt", JSON.stringify(await crawl(browser, site)) + "\n");
         } catch (e) {
             console.error(e);
         }
@@ -37,7 +36,7 @@
 
     await browser.close();
 
-    async function crawl(browser, url) {
+    async function crawl(browser, site) {
         const page = await browser.newPage();
 
         try {
@@ -62,12 +61,12 @@
             await page.setRequestInterception(true);
 
             try {
-                await page.goto(url, {waitUntil: "load", timeout: 60000});
+                await page.goto("http://" + site, {waitUntil: "load", timeout: 60000});
                 await new Promise(resolve => { setTimeout(resolve, 10000); });
             } catch (e) { console.error(e); }
 
-            const flows = await Promise.race([
-                page.evaluate(() => J$.FLOWS),
+            const [flows, url] = await Promise.race([
+                page.evaluate(() => [J$.FLOWS, document.URL]),
                 new Promise((_, reject) => { setTimeout(() => { reject(); }, 5000); })
             ]);
 
