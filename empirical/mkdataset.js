@@ -1,7 +1,8 @@
 "use strict";
 
-const fs = require("fs");
+import * as fs from "fs";
 const fsPromises = fs.promises;
+import LineByLine from "n-readlines";
 
 (async () => {
 
@@ -162,19 +163,23 @@ const fsPromises = fs.promises;
         };
     }
 
-    async function getDataFromFile(filename) {
-        return (await fsPromises.readFile(filename))
-            .toString()
-            .split("\n")
-            .filter(line => line)
+    function readAllLinesFromFile(filename) {
+        const data = [];
+        const lineReader = new LineByLine(filename);
+        let line;
+        while (line = lineReader.next()) {
+            if (line) data.push(line);
+        }
+        return data;
+    }
+
+    function readDataFromFile(filename) {
+        return readAllLinesFromFile(filename)
             .map(line => JSON.parse(line));
     }
 
-    async function getRidToUrlMapFromFile(filename) {
-        const entries = (await fsPromises.readFile(filename))
-            .toString()
-            .split("\n")
-            .filter(line => line)
+    function readRidToUrlMapFromFile(filename) {
+        const entries = readAllLinesFromFile(filename)
             .map(line => line.split(": "));
         const rid2UrlMap = new Map();
         for (let entry of entries) {
@@ -194,9 +199,9 @@ const fsPromises = fs.promises;
 
     const outputFilename = process.argv[4];
 
-    const data = await getDataFromFile(dataFilename);
+    const data = readDataFromFile(dataFilename);
 
-    const rid2UrlMap = await getRidToUrlMapFromFile(logsFilename);
+    const rid2UrlMap = readRidToUrlMapFromFile(logsFilename);
 
     const result = data.map(site => processSite(site));
 

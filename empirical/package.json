@@ -5,6 +5,7 @@
   "description": "",
   "main": "index.js",
   "dependencies": {
+    "n-readlines": "^1.0.1",
     "publicsuffixlist": "^0.3.0",
     "re2": "^1.17.2"
   },
