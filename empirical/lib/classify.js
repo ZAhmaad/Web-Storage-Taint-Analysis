@@ -23,7 +23,7 @@ function classifyExternal(flow, documentOrigin) {
             ? isSourceLabelRelatedTo(lbl, "network")
             : isSinkLabelRelatedTo(lbl, "network")
         ) && (
-            (new URL(urlByNetworkLabel(lbl, documentOrigin), documentOrigin)).origin !== documentOrigin
+            (new URL(urlByNetworkLabel(lbl, documentOrigin))).origin !== documentOrigin
     ));
 
     if (classifyMayViolateConfidentiality(flow)) {
@@ -64,7 +64,8 @@ function classifySameSite(flow, documentOrigin, documentDomain) {
 function classify(data) {
     const domainParser = inject("domainParser");
     return data
-        .map(site => {
+        .map((site, siteIndex) => {
+            console.log(`classifying ${siteIndex + 1} / ${data.length}`);
             const documentURL = new URL(site.url);
             const documentOrigin = documentURL.origin;
             const documentDomain = domainParser.domainByHostname(documentURL.hostname);

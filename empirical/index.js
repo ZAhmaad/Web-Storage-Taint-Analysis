@@ -61,14 +61,11 @@ import {
     const data1 = prefilter(
         JSON.parse(fs.readFileSync(wkdir + "/output.txt").toString())
     );
-
     const classified1 = classify(data1);
+    const data2 = throwAwayStorageToStorageFlows(data1);
+    const classified2 = classify(data2);
 
     const table2Html = makeTable2Html(classified1);
-
-    const data2 = throwAwayStorageToStorageFlows(data1);
-
-    const classified2 = classify(data2);
     const table3Html = makeTable3Html(classified2);
     const table4Html = makeTable4Html(classified2);
 

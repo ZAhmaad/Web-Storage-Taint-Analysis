@@ -136,7 +136,7 @@ function srcByNetworkLabel(lbl) {
 }
 
 function urlByNetworkLabel(lbl, documentOrigin) {
-    return addProtocolToUrl(srcByNetworkLabel(lbl), documentOrigin);
+    return new URL(addProtocolToUrl(srcByNetworkLabel(lbl), documentOrigin), documentOrigin).href;
 }
 
 export {
