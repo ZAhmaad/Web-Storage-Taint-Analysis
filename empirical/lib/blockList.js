@@ -45,35 +45,33 @@ class BlockList {
         this.blockList = blockList;
     }
 
-    doesUrlTriggerBlockRule(rule, scriptUrl, scriptOrigin, scriptDomain, documentOrigin) {
+    doesUrlTriggerBlockRule(rule, scriptUrl, scriptDomain, documentOrigin) {
         return (
             (rule.firstParty && rule.thirdParty) ||
-            (scriptOrigin === documentOrigin ? rule.firstParty : rule.thirdParty)
+            (scriptUrl.origin === documentOrigin ? rule.firstParty : rule.thirdParty)
         ) && (
             !rule.ifDomain ||
             rule.ifDomain.includes(scriptDomain)
         ) && (
             !rule.unlessDomain ||
             !rule.unlessDomain.includes(scriptDomain)
-        ) && rule.urlFilter.test(scriptUrl);
+        ) && rule.urlFilter.test(scriptUrl.href);
     }
 
     isBlockedUrl(scriptUrl, documentOrigin) {
         const domainParser = inject("domainParser");
-        const scriptURL = new URL(scriptUrl);
-        const scriptOrigin = scriptURL.origin;
-        const scriptDomain = domainParser.domainByHostname(scriptURL.hostname);
+        const scriptDomain = domainParser.domainByHostname(scriptUrl.hostname);
         return this.blockList
             .reduce((blocked, rule) => {
                 if (blocked) {
                     return !(
                         rule.actionType === "ignore-previous-rules" &&
-                        this.doesUrlTriggerBlockRule(rule, scriptUrl, scriptOrigin, scriptDomain, documentOrigin)
+                        this.doesUrlTriggerBlockRule(rule, scriptUrl, scriptDomain, documentOrigin)
                     );
                 } else {
                     return (
                         rule.actionType === "block" &&
-                        this.doesUrlTriggerBlockRule(rule, scriptUrl, scriptOrigin, scriptDomain, documentOrigin)
+                        this.doesUrlTriggerBlockRule(rule, scriptUrl, scriptDomain, documentOrigin)
                     );
                 }
             }, false);

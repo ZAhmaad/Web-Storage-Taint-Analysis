@@ -115,7 +115,7 @@ function makeTable4Html(data) {
 function makeLibUsageRankingListHtml(libUsageRankingList) {
     return "<ol>"
         + libUsageRankingList
-            .map(e => `<li>${e.scriptUrl} (${e.flowsCount} / ${e.sitesCount}) [${e.trackingLib ? "TRACKING" : "NON-TRACKING"}]</li>`)
+            .map(e => `<li>${e.scriptHref} (${e.flowsCount} / ${e.sitesCount}) [${e.trackingLib ? "TRACKING" : "NON-TRACKING"}]</li>`)
             .join("")
         + "</ol>";
 }

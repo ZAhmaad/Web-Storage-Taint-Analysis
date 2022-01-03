@@ -1,7 +1,5 @@
 "use strict";
 
-import { addProtocolToUrl } from "./utils.js";
-
 function isSourceLabel(lbl) {
     return (
         isSourceLabelRelatedTo(lbl, "storage") ||
@@ -135,8 +133,16 @@ function srcByNetworkLabel(lbl) {
     }
 }
 
-function urlByNetworkLabel(lbl, documentOrigin) {
-    return new URL(addProtocolToUrl(srcByNetworkLabel(lbl), documentOrigin), documentOrigin).href;
+function srcUrlByNetworkLabel(lbl, documentOrigin) {
+    const addProtocolToUrlIfMissing = url =>
+        /^\/\//.test(url)
+        ? (new URL(documentOrigin)).protocol + url
+        : url;
+    return new URL(
+        addProtocolToUrlIfMissing(
+            srcByNetworkLabel(lbl)),
+        documentOrigin
+    );
 }
 
 export {
@@ -153,5 +159,5 @@ export {
     isLabelRelatedToNavigator,
     labels,
     labelsRelatedTo,
-    urlByNetworkLabel
+    srcUrlByNetworkLabel
 };

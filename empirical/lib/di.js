@@ -14,6 +14,22 @@ const factories = new Map([
             easyList.isBlockedUrl(scriptUrl, documentOrigin) ||
             easyPrivacy.isBlockedUrl(scriptUrl, documentOrigin);
     }],
+    ["trackingWithCache", () => {
+        const isKnownTrackingScript = inject("tracking");
+        return cache => (scriptUrl, documentOrigin) => {
+            if (scriptUrl) {
+                if (cache.has(scriptUrl.href)) {
+                    return cache.get(scriptUrl.href);
+                } else {
+                    const result = isKnownTrackingScript(scriptUrl, documentOrigin);
+                    cache.set(scriptUrl.href, result);
+                    return result;
+                }
+            } else {
+                return false;
+            }
+        };
+    }]
 ]);
 
 const container = new Map();

@@ -1,35 +1,32 @@
 "use strict";
 
 import {
-    isSourceLabelRelatedTo,
-    isSinkLabelRelatedTo,
+    isSourceLabelRelatedToStorage,
+    isSinkLabelRelatedToStorage,
+    isSourceLabelRelatedToNetwork,
+    isSinkLabelRelatedToNetwork,
     labels,
-    labelsRelatedTo,
-    urlByNetworkLabel
+    labelsRelatedTo
 } from "./labels.js";
 import { inject } from "./di.js";
 
 function classifyMayViolateConfidentiality(flow) {
-    return flow[0].some(lbl => isSourceLabelRelatedTo(lbl, "storage"));
+    return flow[0].some(lbl => isSourceLabelRelatedToStorage(lbl));
 }
 
 function classifyMayViolateIntegrity(flow) {
-    return isSinkLabelRelatedTo(flow[1], "storage");
+    return isSinkLabelRelatedToStorage(flow[1]);
 }
 
 function classifyExternal(flow, documentOrigin) {
-    const isLabelExternal = (lbl, isSourceLabel) => ((
-            isSourceLabel
-            ? isSourceLabelRelatedTo(lbl, "network")
-            : isSinkLabelRelatedTo(lbl, "network")
-        ) && (
-            (new URL(urlByNetworkLabel(lbl, documentOrigin))).origin !== documentOrigin
-    ));
-
+    const isExternalLabel = (lbl, sourceLabel) =>
+        (sourceLabel ? isSourceLabelRelatedToNetwork(lbl) : isSinkLabelRelatedToNetwork(lbl))
+        ? lbl.srcUrl.origin !== documentOrigin
+        : false;
     if (classifyMayViolateConfidentiality(flow)) {
-        return isLabelExternal(flow[1], false);
+        return isExternalLabel(flow[1], false);
     } else {
-        return flow[0].some(lbl => isLabelExternal(lbl, true));
+        return flow[0].some(lbl => isExternalLabel(lbl, true));
     }
 }
 
@@ -37,8 +34,7 @@ function classifyInternal(flow, documentOrigin) {
     return !classifyExternal(flow, documentOrigin);
 }
 
-function classifyTracking(flow, documentOrigin) {
-    const isKnownTrackingScript = inject("tracking");
+function classifyTracking(flow, documentOrigin, isKnownTrackingScript) {
     return labels(flow)
         .some(lbl => lbl.scriptUrl && isKnownTrackingScript(lbl.scriptUrl, documentOrigin));
 }
@@ -53,12 +49,11 @@ function classifySession(flow) {
         .some(lbl => lbl.extra[0] === "sessionStorage");
 }
 
-function classifySameSite(flow, documentOrigin, documentDomain) {
+function classifySameSite(flow, documentDomain) {
     const domainParser = inject("domainParser");
     return labelsRelatedTo(flow, "network")
         .every(lbl =>
-            domainParser.domainByHostname(
-                new URL(urlByNetworkLabel(lbl, documentOrigin)).hostname) === documentDomain);
+            domainParser.domainByHostname(lbl.srcUrl.hostname) === documentDomain);
 }
 
 function classify(data) {
@@ -66,9 +61,9 @@ function classify(data) {
     return data
         .map((site, siteIndex) => {
             console.log(`classifying ${siteIndex + 1} / ${data.length}`);
-            const documentURL = new URL(site.url);
-            const documentOrigin = documentURL.origin;
-            const documentDomain = domainParser.domainByHostname(documentURL.hostname);
+            const documentOrigin = site.url.origin;
+            const documentDomain = domainParser.domainByHostname(site.url.hostname);
+            const isKnownTrackingScript = inject("trackingWithCache")(new Map());
             return {
                 url: site.url,
                 flows: site.flows
@@ -77,14 +72,14 @@ function classify(data) {
                         mayViolateConfidentiality: classifyMayViolateConfidentiality(flow),
                         mayViolateIntegrity: classifyMayViolateIntegrity(flow),
                         internal: classifyInternal(flow, documentOrigin),
-                        tracking: classifyTracking(flow, documentOrigin),
+                        tracking: classifyTracking(flow, documentOrigin, isKnownTrackingScript),
                         local: classifyLocal(flow),
                         session: classifySession(flow),
                     }))
                     .map(flow => {
                         return {
                             ...flow,
-                            sameSite: !flow.internal && (classifySameSite(flow.original, documentOrigin, documentDomain))
+                            sameSite: !flow.internal && (classifySameSite(flow.original, documentDomain))
                         };
                     })
             };
