@@ -1,21 +1,13 @@
 "use strict";
 
 import {
+    countFlows,
+    countSites
+} from "./count.js";
+import {
     isSourceLabelRelatedTo,
     isSinkLabelRelatedTo
 } from "./labels.js";
-
-function countFlows(data, filterFn) {
-    return data
-        .map(site => site.flows.filter(flow => filterFn(flow)).length)
-        .reduce((acc, cur) => acc + cur, 0);
-}
-
-function countSites(data, filterFn) {
-    return data
-        .filter(site => site.flows.filter(flow => filterFn(flow)).length > 0)
-        .length;
-}
 
 function makeTable2Html(data) {
     const dim1 = [

@@ -79,7 +79,7 @@ function classify(data) {
                     .map(flow => {
                         return {
                             ...flow,
-                            sameSite: !flow.internal && (classifySameSite(flow.original, documentDomain))
+                            sameSite: !flow.internal && classifySameSite(flow.original, documentDomain)
                         };
                     })
             };

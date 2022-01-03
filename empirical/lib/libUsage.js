@@ -4,7 +4,7 @@ import {
     labels,
     labelsRelatedTo
 } from "./labels.js";
-import { countFlows } from "./report.js";
+import { countFlows } from "./count.js";
 import { inject } from "./di.js";
 
 function isTrackingLib(data, scriptUrl) {

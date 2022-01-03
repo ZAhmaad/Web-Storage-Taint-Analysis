@@ -1,7 +1,7 @@
 "use strict";
 
 import { labelsRelatedTo } from "./labels.js";
-import { countFlows } from "./report.js";
+import { countFlows } from "./count.js";
 
 function countNetworkFlowsWithHttp(data, secure) {
     return countFlows(data, flow =>
