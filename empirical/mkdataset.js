@@ -166,8 +166,9 @@ import LineByLine from "n-readlines";
     function readAllLinesFromFile(filename) {
         const data = [];
         const lineReader = new LineByLine(filename);
-        let line;
-        while (line = lineReader.next()) {
+        let lineBuffer;
+        while (lineBuffer = lineReader.next()) {
+            const line = lineBuffer.toString();
             if (line) data.push(line);
         }
         return data;
