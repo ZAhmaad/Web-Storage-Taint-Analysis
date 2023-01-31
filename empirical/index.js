@@ -16,6 +16,23 @@ import {
     makeStatsHtml,
     fillReport
 } from "./lib/report.js";
+import LineByLine from "n-readlines";
+
+function readAllLinesFromFile(filename) {
+    const data = [];
+    const lineReader = new LineByLine(filename);
+    let lineBuffer;
+    while (lineBuffer = lineReader.next()) {
+        const line = lineBuffer.toString();
+        if (line) data.push(line);
+    }
+    return data;
+}
+
+function readDataFromFile(filename) {
+    return readAllLinesFromFile(filename)
+        .map(line => JSON.parse(line));
+}
 
 (() => {
 
@@ -29,7 +46,7 @@ import {
     const data =
         parseUrls(
             prefilter(
-                JSON.parse(fs.readFileSync(wkdir + "/output.txt").toString())
+                readDataFromFile(wkdir + "/output.txt")
             ));
     const classified = classify(data);
     const dataTA = throwAway(data);
