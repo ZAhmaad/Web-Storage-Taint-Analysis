@@ -120,6 +120,20 @@ import LineByLine from "n-readlines";
         lblClass.addLabel(lbl);
     }
 
+    function tryProcessSite(site) {
+        try {
+            return processSite(site);
+        } catch (_) {
+            console.log('error');
+            return {
+                url: site.url,
+                flows: [],
+                wsIidsInGrep: 0,
+                wsIidsInAnalysis: 0
+            };
+        }
+    }
+
     function processSite(site) {
         const distinctFlows = filterBrokenFlows(filterDistinctFlows(site.flows));
 
@@ -204,8 +218,10 @@ import LineByLine from "n-readlines";
 
     const rid2UrlMap = readRidToUrlMapFromFile(logsFilename);
 
-    const result = data.map(site => processSite(site));
+    const result = data.map(site => tryProcessSite(site));
 
-    await fsPromises.writeFile(outputFilename, JSON.stringify(result));
+    for (const site of result) {
+        await fsPromises.appendFile(outputFilename, JSON.stringify(site) + "\n");
+    }
 
 })();
